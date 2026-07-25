@@ -47,7 +47,7 @@
 Клонируйте репозиторий:
 
 ```bash
-git clone https://github.com/your-username/LANdapter.git
+git clone https://github.com/chocom1nt/LANdapter.git
 cd LANdapter
 ```
 
@@ -226,8 +226,4 @@ make test-cover
 
 ---
 
-## Контакты
-
-- Автор: [Ваше имя или ник]
-- GitHub: [ссылка на профиль]
-- Если у вас есть вопросы или предложения, создавайте [Issues](https://github.com/your-username/LANdapter/issues) или отправляйте Pull Request.
+Если у вас есть вопросы или предложения, создавайте [Issues](https://github.com/chocom1nt/LANdapter/issues) или отправляйте Pull Request.
