@@ -1,0 +1,99 @@
+# --- Go ---
+# If you prefer the allow list template instead of the deny list, see community template:
+# https://github.com/golang-standards/project-layout/blob/master/README.md#ci-yml
+#
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# Dependency directories (remove the comment below to include it)
+# vendor/
+
+# Go workspace file
+go.work
+go.work.sum
+
+# --- LANdapter specific ---
+/bin/
+/master
+/agent
+*.uuid
+*.pid
+/uploads/
+/*.log
+/logs/
+/configs/*.local.yaml
+/configs/*.secret.yaml
+.env
+.env.local
+
+# --- Node / Frontend ---
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.swp
+*.swo
+
+# Vite / build
+/web/dist
+/web/.vite
+/web/node_modules
+/web/package-lock.json  # раскомментируйте, если не хотите коммитить lock-файл (обычно коммитят)
+
+# --- OS / Environment ---
+Thumbs.db
+.DS_Store
+*.tmp
+*.temp
+/tmp/
+
+# --- Docker ---
+docker-compose.override.yml
+*.dockerignore
+.Dockerfile.*.tmp
+
+# --- PostgreSQL (local volumes) ---
+postgres-data/
+*.db
+*.sqlite
+*.sqlite3
+
+# --- Coverage ---
+coverage.out
+coverage.html
+*.coverprofile
+
+# --- Archives (optional) ---
+*.zip
+*.tar.gz
+*.tar
