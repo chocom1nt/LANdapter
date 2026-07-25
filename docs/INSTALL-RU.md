@@ -19,7 +19,7 @@
 ## 1. Клонирование репозитория
 
 ```bash
-git clone https://github.com/your-username/LANdapter.git
+git clone https://github.com/chocom1nt/LANdapter.git
 cd LANdapter
 ```
 
