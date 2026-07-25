@@ -1,5 +1,7 @@
 # Руководство для контрибьюторов
 
+**Языки:** [English](CONTRIBUTING.md) · [Русский](CONTRIBUTING-RU.md) · [中文](CONTRIBUTING-ZH.md) · [日本語](CONTRIBUTING-JA.md) · [Español](CONTRIBUTING-ES.md)
+
 Спасибо, что решили внести свой вклад в LANdapter! Мы рады любым улучшениям — от исправления опечаток до новых функций.
 
 В этом документе описаны правила и рекомендации, которые помогут сделать ваш вклад максимально полезным и упростят процесс ревью.
@@ -76,7 +78,7 @@ git checkout -b feature/awesome-new-feature
 - `migrations/` – SQL-миграции.
 - `docs/` – документация.
 
-Подробнее о структуре см. в `ARCHITECTURE.md`.
+Подробнее о структуре см. в [ARCHITECTURE-RU.md](ARCHITECTURE-RU.md).
 
 ### 4. Коммиты
 
@@ -201,9 +203,9 @@ make run-agent    # в другом
 
 Любое изменение API, конфигурации или добавление новой функции должно сопровождаться обновлением документации в папке `docs/`.
 
-- API-эндпоинты описывайте в `README.API.md`.
-- Параметры конфигурации — в `CONFIG.md`.
-- Новые идеи и архитектура — в `ARCHITECTURE.md`.
+- API-эндпоинты описывайте в [README.API-RU.md](README.API-RU.md) (и в других языковых версиях).
+- Параметры конфигурации — в [CONFIG-RU.md](CONFIG-RU.md).
+- Новые идеи и архитектура — в [ARCHITECTURE-RU.md](ARCHITECTURE-RU.md).
 
 ---
 

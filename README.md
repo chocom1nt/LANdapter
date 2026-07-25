@@ -11,53 +11,55 @@
   <img src="https://img.shields.io/badge/postgresql-15-4169E1?style=flat&logo=postgresql&logoColor=white" alt="PostgreSQL">
 </p>
 
-**LANdapter** – клиент-серверная система для централизованной удалённой установки драйверов и программного обеспечения в локальной сети.
+**Languages:** [English](README.md) · [Русский](README-RU.md) · [中文](README-ZH.md) · [日本語](README-JA.md) · [Español](README-ES.md)
 
-Система состоит из **мастера** (сервер) и **агентов** (клиентские машины). Мастер управляет подключёнными агентами, раздаёт файлы и отслеживает ход установок. Агенты получают команды через WebSocket, скачивают файлы и выполняют установку в тихом или интерактивном режиме.
+**LANdapter** is a client–server system for centralized remote installation of drivers and software on a local network.
 
-Проект создан для упрощения администрирования рабочих станций в офисных и промышленных сетях, где требуется оперативно обновлять драйверы или устанавливать приложения на десятки и сотни машин.
+The system consists of a **master** (server) and **agents** (client machines). The master manages connected agents, distributes files, and tracks installation progress. Agents receive commands over WebSocket, download files, and run installations in quiet or interactive mode.
 
----
-
-## Возможности
-
-- **Централизованное управление** – все агенты подключаются к единому мастер-серверу.
-- **Удалённая установка** – передача файлов (EXE, MSI, INF, DEB, RUN, TAR) на агенты и запуск с нужными параметрами.
-- **Два режима установки** – тихая (без UI) и интерактивная (с пользовательским интерфейсом).
-- **Сбор статистики** – получение системных метрик (CPU, RAM, uptime) и списка устройств (PnP, lsusb, lspci).
-- **История и отчёты** – каждое задание сохраняется в базе данных вместе со снимками состояния системы до и после установки.
-- **Точки восстановления** – автоматическое создание точки восстановления перед установкой на Windows.
-- **Веб-интерфейс** – удобная панель управления на React с тёмной темой, библиотекой файлов и мастером установки.
-- **Гибкая конфигурация** – YAML-файлы, поддержка переменных окружения.
-- **Кроссплатформенность** – мастер и агенты работают на Windows и Linux (агент также поддерживает macOS в режиме ограниченной функциональности).
+The project simplifies workstation administration in office and industrial networks where you need to quickly update drivers or deploy applications to dozens or hundreds of machines.
 
 ---
 
-## Быстрый старт
+## Features
 
-### Требования
+- **Centralized management** – all agents connect to a single master server.
+- **Remote installation** – push files (EXE, MSI, INF, DEB, RUN, TAR) to agents and run them with the right parameters.
+- **Two installation modes** – quiet (no UI) and interactive (with user interface).
+- **Statistics collection** – system metrics (CPU, RAM, uptime) and device lists (PnP, lsusb, lspci).
+- **History and reports** – each job is stored in the database with system snapshots before and after installation.
+- **Restore points** – automatic restore point creation before installation on Windows.
+- **Web UI** – React dashboard with dark theme, file library, and installation wizard.
+- **Flexible configuration** – YAML files and environment variable support.
+- **Cross-platform** – master and agents run on Windows and Linux (the agent also supports macOS with limited functionality).
+
+---
+
+## Quick start
+
+### Requirements
 
 - Go 1.21+
 - PostgreSQL 15+
-- Node.js 18+ (для фронтенда)
-- Make (опционально)
+- Node.js 18+ (for the frontend)
+- Make (optional)
 
-### Установка и запуск
+### Install and run
 
-Клонируйте репозиторий:
+Clone the repository:
 
 ```bash
 git clone https://github.com/chocom1nt/LANdapter.git
 cd LANdapter
 ```
 
-Скачайте зависимости Go:
+Download Go dependencies:
 
 ```bash
 go mod download
 ```
 
-Установите зависимости фронтенда:
+Install frontend dependencies:
 
 ```bash
 cd web
@@ -65,83 +67,83 @@ npm install
 cd ..
 ```
 
-Примените миграции базы данных:
+Apply database migrations:
 
 ```bash
 make migrate-up
-# или вручную:
+# or manually:
 psql -h localhost -U postgres -d landapter -f migrations/001_init.up.sql
 psql -h localhost -U postgres -d landapter -f migrations/002_add_mac_up.sql
 psql -h localhost -U postgres -d landapter -f migrations/003_add_devices_up.sql
 psql -h localhost -U postgres -d landapter -f migrations/004_add_snapshots.up.sql
 ```
 
-Запустите мастер:
+Start the master:
 
 ```bash
 go run cmd/master/main.go
 ```
 
-Запустите агента (в отдельном терминале):
+Start an agent (in a separate terminal):
 
 ```bash
 go run cmd/agent/main.go
 ```
 
-Запустите фронтенд (в третьем терминале):
+Start the frontend (in a third terminal):
 
 ```bash
 cd web
 npm run dev
 ```
 
-Откройте в браузере `http://localhost:3000`.
+Open `http://localhost:3000` in your browser.
 
-Подробная инструкция по развёртыванию доступна в [docs/INSTALL.md](docs/INSTALL.md).
+See [docs/INSTALL.md](docs/INSTALL.md) for detailed deployment instructions.
 
 ---
 
-## Сборка из исходников
+## Building from source
 
-### Бинарники Go
+### Go binaries
 
-Соберите мастер и агента:
+Build master and agent:
 
 ```bash
 make build
 ```
 
-Либо вручную:
+Or manually:
 
 ```bash
 go build -o bin/master cmd/master/main.go
 go build -o bin/agent cmd/agent/main.go
 ```
 
-### Фронтенд
+### Frontend
 
-Соберите React-приложение:
+Build the React app:
 
 ```bash
 cd web
 npm run build
 ```
 
-Готовая статика появится в `web/dist/`.
+Static assets are output to `web/dist/`.
 
-### Docker-образы
+### Docker images
 
-Для мастера и агента предусмотрены отдельные Dockerfile:
+Separate Dockerfiles are provided for master and agent:
 
 ```bash
-# Мастер
+# Master
 docker build -f Dockerfile.master -t landapter-master .
 
-# Агент
+# Agent
 docker build -f Dockerfile.agent -t landapter-agent .
 ```
 
-Или запустите полный стек через `docker-compose` (с PostgreSQL):
+Or run the full stack with `docker-compose` (includes PostgreSQL):
 
 ```bash
 docker-compose up -d
@@ -149,23 +151,23 @@ docker-compose up -d
 
 ---
 
-## Структура проекта
+## Project structure
 
 ```text
 LANdapter/
-├── cmd/                  # Точки входа
+├── cmd/                  # Entry points
 │   ├── master/
 │   └── agent/
-├── internal/             # Внутренние пакеты
-│   ├── common/           # Общие структуры, логирование, конфиг
-│   ├── master/           # Логика мастера (HTTP, WebSocket, хендлеры)
-│   └── agent/            # Логика агента (подключение, установка)
-├── storage/              # Слой данных (интерфейс + PostgreSQL)
-├── migrations/           # SQL-миграции
-├── web/                  # React-фронтенд
-├── docs/                 # Документация
-├── configs/              # Примеры конфигурационных файлов
-├── uploads/              # Папка для загруженных файлов (создаётся автоматически)
+├── internal/             # Internal packages
+│   ├── common/           # Shared types, logging, config
+│   ├── master/           # Master logic (HTTP, WebSocket, handlers)
+│   └── agent/            # Agent logic (connection, installation)
+├── storage/              # Data layer (interface + PostgreSQL)
+├── migrations/           # SQL migrations
+├── web/                  # React frontend
+├── docs/                 # Documentation
+├── configs/              # Sample configuration files
+├── uploads/              # Uploaded files (created automatically)
 ├── docker-compose.yml
 ├── Makefile
 ├── go.mod
@@ -174,34 +176,34 @@ LANdapter/
 
 ---
 
-## Документация
+## Documentation
 
-Полная документация находится в папке [docs/](docs/):
+Full documentation is in [docs/](docs/):
 
-- [API Reference](docs/README.API-RU.md) – описание всех REST и WebSocket эндпоинтов (русский / [английский](docs/README.API.md)).
-- [Инструкция по установке](docs/INSTALL.md) – детальное руководство по развёртыванию.
-- [Конфигурация](docs/CONFIG.md) – описание параметров `master.yaml` и `agent.yaml`.
-- [Архитектура](docs/ARCHITECTURE.md) – принципы работы, жизненный цикл заданий, протокол WebSocket.
-- [Развёртывание в продакшн](docs/DEPLOY.md) – настройка сервисов, прокси, мониторинга.
-- [FAQ](docs/FAQ.md) – частые вопросы и решения проблем.
+- [API Reference](docs/README.API.md) – REST and WebSocket endpoints ([Русский](docs/README.API-RU.md) · [中文](docs/README.API-ZH.md) · [日本語](docs/README.API-JA.md) · [Español](docs/README.API-ES.md)).
+- [Installation guide](docs/INSTALL.md) – detailed deployment walkthrough.
+- [Configuration](docs/CONFIG.md) – `master.yaml` and `agent.yaml` parameters.
+- [Architecture](docs/ARCHITECTURE.md) – design, job lifecycle, WebSocket protocol.
+- [Production deployment](docs/DEPLOY.md) – services, proxy, monitoring.
+- [FAQ](docs/FAQ.md) – common questions and troubleshooting.
 
 ---
 
-## Тестирование
+## Testing
 
-Запуск юнит-тестов:
+Run unit tests:
 
 ```bash
 make test
 ```
 
-Интеграционные тесты (требуют реальную БД):
+Integration tests (require a real database):
 
 ```bash
 make test-integration
 ```
 
-Отчёт о покрытии:
+Coverage report:
 
 ```bash
 make test-cover
@@ -209,21 +211,21 @@ make test-cover
 
 ---
 
-## Планы развития
+## Roadmap
 
-- Поддержка групповых политик (выбор клиентов по группам)
-- CLI-утилита для мастера (управление без веб-интерфейса)
-- Интеграция с Active Directory / LDAP
-- Поддержка дополнительных форматов пакетов (AppImage, Flatpak)
-- Планирование заданий по расписанию
-- Улучшенный парсинг драйверов с веб-сайтов
-
----
-
-## Лицензия
-
-Проект распространяется под лицензией MIT. Подробнее см. файл [LICENSE](LICENSE).
+- Group policies (select clients by group)
+- Master CLI (manage without the web UI)
+- Active Directory / LDAP integration
+- Additional package formats (AppImage, Flatpak)
+- Scheduled jobs
+- Improved driver parsing from vendor websites
 
 ---
 
-Если у вас есть вопросы или предложения, создавайте [Issues](https://github.com/chocom1nt/LANdapter/issues) или отправляйте Pull Request.
+## License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+
+---
+
+Questions or suggestions? Open an [Issue](https://github.com/chocom1nt/LANdapter/issues) or send a Pull Request.

@@ -1,6 +1,6 @@
 # API Documentation
 
-[Russian](README.API-RU.md)
+**Languages:** [English](README.API.md) · [Русский](README.API-RU.md) · [中文](README.API-ZH.md) · [日本語](README.API-JA.md) · [Español](README.API-ES.md)
 
 ## Overview
 

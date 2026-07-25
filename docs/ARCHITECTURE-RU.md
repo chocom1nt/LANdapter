@@ -1,5 +1,7 @@
 # Архитектура LANdapter
 
+**Языки:** [English](ARCHITECTURE.md) · [Русский](ARCHITECTURE-RU.md) · [中文](ARCHITECTURE-ZH.md) · [日本語](ARCHITECTURE-JA.md) · [Español](ARCHITECTURE-ES.md)
+
 В этом документе описаны основные компоненты системы, их взаимодействие, протокол обмена данными и ключевые принципы работы.
 
 ---

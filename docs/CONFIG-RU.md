@@ -1,5 +1,7 @@
 # Конфигурация LANdapter
 
+**Языки:** [English](CONFIG.md) · [Русский](CONFIG-RU.md) · [中文](CONFIG-ZH.md) · [日本語](CONFIG-JA.md) · [Español](CONFIG-ES.md)
+
 В этом документе описаны все параметры конфигурационных файлов `master.yaml` и `agent.yaml`, а также способы их переопределения через переменные окружения.
 
 ---
