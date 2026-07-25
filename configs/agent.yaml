@@ -1,0 +1,4 @@
+master_host: "192.168.1.99"
+master_port: 8081
+uuid_file: "agent.uuid"
+installer_args: {}

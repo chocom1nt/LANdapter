@@ -1,0 +1,37 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --bg: #f3f4f6;
+    --surface: #ffffff;
+    --text: #111827;
+  }
+
+  .dark {
+    --bg: #1a202c;
+    --surface: #2d3748;
+    --text: #f7fafc;
+  }
+
+  body {
+    background-color: var(--bg);
+    color: var(--text);
+    transition: background-color 0.3s, color 0.3s;
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.25s ease-out forwards;
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: #3b82f6;
+}

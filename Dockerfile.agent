@@ -1,0 +1,20 @@
+FROM golang:1.26 AS builder
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -installsuffix cgo -o agent cmd/agent/main.go
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY --from=builder /app/agent .
+
+# Копируем конфиг (если нужен)
+COPY configs/agent.yaml /app/configs/agent.yaml
+
+ENV MASTER_HOST=host.docker.internal \
+    MASTER_PORT=8081 \
+    UUID_FILE=/tmp/agent.uuid
+
+ENTRYPOINT ["/app/agent"]

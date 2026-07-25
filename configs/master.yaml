@@ -1,0 +1,10 @@
+host: "0.0.0.0"
+http_port: 8080
+ws_port: 8081
+db:
+  host: "localhost"
+  port: 5432
+  user: "postgres"
+  password: "postgres"
+  dbname: "landapter"
+  sslmode: "disable"
