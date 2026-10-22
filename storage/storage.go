@@ -9,19 +9,21 @@ import (
 )
 
 type Storage interface {
-    // Clients
-    UpsertClient(ctx context.Context, client *common.Client) error
-    UpdateClientOnline(ctx context.Context, id uuid.UUID, online bool) error
-    GetClient(ctx context.Context, id uuid.UUID) (*common.Client, error)
-    ListClients(ctx context.Context, online *bool) ([]common.Client, error)
+	// Clients
+	UpsertClient(ctx context.Context, client *common.Client) error
+	UpdateClientOnline(ctx context.Context, id uuid.UUID, online bool) error
+	GetClient(ctx context.Context, id uuid.UUID) (*common.Client, error)
+	ListClients(ctx context.Context, online *bool) ([]common.Client, error)
+	SetClientTokenHash(ctx context.Context, id uuid.UUID, tokenHash string) error
+	GetClientTokenHash(ctx context.Context, id uuid.UUID) (string, error)
 
-    // Jobs
-    CreateJob(ctx context.Context, job *common.Job) error
-    GetJob(ctx context.Context, id uuid.UUID) (*common.Job, error)
+	// Jobs
+	CreateJob(ctx context.Context, job *common.Job) error
+	GetJob(ctx context.Context, id uuid.UUID) (*common.Job, error)
 
-    // JobResults
-    CreateJobResult(ctx context.Context, result *common.JobResult) error
-    UpdateJobResult(ctx context.Context, result *common.JobResult) error
-    GetJobResult(ctx context.Context, jobID, clientID uuid.UUID) (*common.JobResult, error)
-    ListJobResultsByJob(ctx context.Context, jobID uuid.UUID) ([]common.JobResult, error)
+	// JobResults
+	CreateJobResult(ctx context.Context, result *common.JobResult) error
+	UpdateJobResult(ctx context.Context, result *common.JobResult) error
+	GetJobResult(ctx context.Context, jobID, clientID uuid.UUID) (*common.JobResult, error)
+	ListJobResultsByJob(ctx context.Context, jobID uuid.UUID) ([]common.JobResult, error)
 }

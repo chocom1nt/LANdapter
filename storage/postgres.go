@@ -4,6 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net"
+	"net/url"
+	"strconv"
 
 	"github.com/chocom1nt/LANdapter/internal/common"
 
@@ -17,9 +20,23 @@ type PostgresStorage struct {
 }
 
 func NewPostgresStorage(cfg common.DBConfig) (*PostgresStorage, error) {
-	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-		cfg.Host, cfg.Port, cfg.User, cfg.Password, cfg.DBName, cfg.SSLMode)
-	db, err := sqlx.Connect("postgres", dsn)
+	if cfg.Host == "" || cfg.Port < 1 || cfg.Port > 65535 || cfg.User == "" || cfg.DBName == "" {
+		return nil, fmt.Errorf("invalid PostgreSQL configuration: host, port, user and dbname are required")
+	}
+	sslMode := cfg.SSLMode
+	if sslMode == "" {
+		sslMode = "prefer"
+	}
+	dsn := url.URL{
+		Scheme: "postgres",
+		User:   url.UserPassword(cfg.User, cfg.Password),
+		Host:   net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port)),
+		Path:   "/" + cfg.DBName,
+	}
+	query := url.Values{}
+	query.Set("sslmode", sslMode)
+	dsn.RawQuery = query.Encode()
+	db, err := sqlx.Connect("postgres", dsn.String())
 	if err != nil {
 		return nil, err
 	}
@@ -27,7 +44,7 @@ func NewPostgresStorage(cfg common.DBConfig) (*PostgresStorage, error) {
 }
 
 func NewPostgresStorageWithDB(db *sqlx.DB) *PostgresStorage {
-    return &PostgresStorage{db: db}
+	return &PostgresStorage{db: db}
 }
 
 func (s *PostgresStorage) Close() error {
@@ -58,7 +75,17 @@ func (s *PostgresStorage) UpdateClientOnline(ctx context.Context, id uuid.UUID, 
 
 func (s *PostgresStorage) GetClient(ctx context.Context, id uuid.UUID) (*common.Client, error) {
 	var client common.Client
-	query := `SELECT id, hostname, os, mac, online, last_seen FROM clients WHERE id = $1`
+	query := `
+    SELECT
+        id,
+        hostname,
+        os,
+        COALESCE(mac, '') AS mac,
+        COALESCE(online, FALSE) AS online,
+        COALESCE(last_seen, NOW()) AS last_seen
+    FROM clients
+    WHERE id = $1
+	`
 	err := s.db.GetContext(ctx, &client, query, id)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -67,8 +94,17 @@ func (s *PostgresStorage) GetClient(ctx context.Context, id uuid.UUID) (*common.
 }
 
 func (s *PostgresStorage) ListClients(ctx context.Context, online *bool) ([]common.Client, error) {
-	var clients []common.Client
-	query := `SELECT id, hostname, os, mac, online, last_seen FROM clients`
+	clients := make([]common.Client, 0)
+	query := `
+    SELECT
+        id,
+        hostname,
+        os,
+        COALESCE(mac, '') AS mac,
+        COALESCE(online, FALSE) AS online,
+        COALESCE(last_seen, NOW()) AS last_seen
+    FROM clients
+	`
 	args := []interface{}{}
 	if online != nil {
 		query += ` WHERE online = $1`
@@ -76,6 +112,25 @@ func (s *PostgresStorage) ListClients(ctx context.Context, online *bool) ([]comm
 	}
 	err := s.db.SelectContext(ctx, &clients, query, args...)
 	return clients, err
+}
+
+// SetClientTokenHash creates a pending client record if needed and stores only
+// the hash of an agent credential. Rotation replaces the previous hash.
+func (s *PostgresStorage) SetClientTokenHash(ctx context.Context, id uuid.UUID, tokenHash string) error {
+	const query = `INSERT INTO clients (id, hostname, os, mac, online, last_seen, token_hash)
+		VALUES ($1, 'Pending registration', 'unknown', '', FALSE, NOW(), $2)
+		ON CONFLICT (id) DO UPDATE SET token_hash = EXCLUDED.token_hash`
+	_, err := s.db.ExecContext(ctx, query, id, tokenHash)
+	return err
+}
+
+func (s *PostgresStorage) GetClientTokenHash(ctx context.Context, id uuid.UUID) (string, error) {
+	var tokenHash string
+	err := s.db.GetContext(ctx, &tokenHash, `SELECT token_hash FROM clients WHERE id = $1`, id)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return tokenHash, err
 }
 
 // ---- Jobs ----
@@ -127,7 +182,7 @@ func (s *PostgresStorage) GetJobResult(ctx context.Context, jobID, clientID uuid
 }
 
 func (s *PostgresStorage) ListJobResultsByJob(ctx context.Context, jobID uuid.UUID) ([]common.JobResult, error) {
-	var results []common.JobResult
+	results := make([]common.JobResult, 0)
 	query := `SELECT id, job_id, client_id, status, output, error, started_at, finished_at, snapshot_before, snapshot_after
 	          FROM job_results WHERE job_id = $1`
 	err := s.db.SelectContext(ctx, &results, query, jobID)
