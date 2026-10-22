@@ -3,27 +3,39 @@ services:
   postgres:
     image: postgres:15
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: ${POSTGRES_USER:-landapter}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: landapter
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
 
   master:
-    build: .
+    build:
+      context: .
+      dockerfile: dockerfile
     command: ./bin/master
     ports:
-      - "8080:8080"
-      - "8081:8081"
+      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:8081:8081"
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
     environment:
-      - DB_HOST=postgres
+      DB_HOST: postgres
+      DB_USER: ${POSTGRES_USER:-landapter}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      LANDAPTER_ADMIN_TOKEN: ${LANDAPTER_ADMIN_TOKEN:?Set LANDAPTER_ADMIN_TOKEN to a different random secret of at least 32 characters}
     volumes:
-      - ./configs:/app/configs
-      - ./bin:/app/bin
+      - ./configs/master.yaml:/app/configs/master.yaml:ro
+      - ./uploads:/app/uploads
 
 volumes:
   postgres_data:

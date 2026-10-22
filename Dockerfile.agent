@@ -1,4 +1,4 @@
-FROM golang:1.26 AS builder
+FROM golang:1.26.4 AS builder
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
@@ -11,10 +11,14 @@ WORKDIR /app
 COPY --from=builder /app/agent .
 
 # Копируем конфиг (если нужен)
-COPY configs/agent.yaml /app/configs/agent.yaml
+COPY configs/agent.yaml.example /app/configs/agent.yaml
 
 ENV MASTER_HOST=host.docker.internal \
     MASTER_PORT=8081 \
+    MASTER_HTTP_PORT=8080 \
+    MASTER_SCHEME=ws \
+    AGENT_UUID= \
+    AGENT_TOKEN= \
     UUID_FILE=/tmp/agent.uuid
 
 ENTRYPOINT ["/app/agent"]
