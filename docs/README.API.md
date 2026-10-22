@@ -2,24 +2,45 @@
 
 **Languages:** [English](README.API.md) · [Русский](README.API-RU.md) · [中文](README.API-ZH.md) · [日本語](README.API-JA.md) · [Español](README.API-ES.md)
 
+
+> **Authentication.** All administrative REST endpoints require `Authorization: Bearer $LANDAPTER_ADMIN_TOKEN`. Set this variable for the Master process to a random secret of at least 32 characters. WebSocket agents use individual tokens issued in the UI; only SHA-256 token hashes are stored in PostgreSQL. Agents download installers from `/api/v1/agent/files/{id}` with `Authorization: Bearer <agent-token>` and `X-Agent-ID: <uuid>`. Use HTTPS/WSS through a TLS reverse proxy for remote networks.
+
+
 ## Overview
 
 LANdapter provides a RESTful HTTP API for managing clients and distributing software installations, plus a WebSocket endpoint for real‑time agent communication. All HTTP endpoints are served on the port configured in `master.yaml` (default `8080`). WebSocket runs on a separate port (default `8081`).
 
-> **Authentication**: The current version does not implement authentication. It is designed for trusted internal networks. Do not expose the API to the public internet without additional security measures.
-
----
-
 ## Base URLs
 
-- HTTP API: `http://<master-host>:<http-port>/api/v1/`
-- WebSocket: `ws://<master-host>:<ws-port>/ws`
+- HTTP API: `https://<master-host>/api/v1/` behind a TLS proxy (or `http://localhost:8080/api/v1/` for local development)
+- WebSocket: `wss://<master-host>/ws` behind a TLS proxy (or `ws://localhost:8081/ws` for local development)
 
 ---
 
 ## HTTP API Endpoints
 
-All endpoints return JSON responses. Errors are returned with appropriate HTTP status codes and a plain text error message.
+Most management endpoints return JSON. File-download endpoints return binary content with `Content-Disposition`; errors use an HTTP status code and a plain-text message.
+
+---
+
+### `POST /api/v1/agents/enroll`
+
+Issue a per-agent credential (admin bearer token required). Send `{}` to create a new agent ID, or `{"agent_id":"<existing-uuid>"}` to rotate the credential for an existing ID. The plaintext token is returned only by this response; the database stores only its SHA-256 hash. Rotating a credential invalidates the old token and closes an active connection.
+
+**Response** – `200 OK`
+
+```json
+{
+  "agent_id": "550e8400-e29b-41d4-a716-446655440000",
+  "token": "one-time-secret",
+  "agent_config": {
+    "uuid": "550e8400-e29b-41d4-a716-446655440000",
+    "token": "one-time-secret"
+  }
+}
+```
+
+Save `agent_id` and `token` in the agent's private `configs/agent.yaml` file. Do not commit or share the token.
 
 ---
 
@@ -82,7 +103,7 @@ Create a new installation job and send commands to selected online agents.
 }
 ```
 
-The job is created and queued. Each selected client receives the installation command immediately if online; otherwise, the job remains pending.
+The job is created and stored. Online agents receive the installation command immediately. Offline targets may remain `pending`; automatic delivery when an agent reconnects is not implemented yet.
 
 **Errors**
 
@@ -136,6 +157,19 @@ List all uploaded files with their metadata.
 **Errors**
 
 - `500 Internal Server Error` – cannot read upload directory.
+
+---
+
+### `GET /api/v1/files/{id}` and `GET /api/v1/agent/files/{id}`
+
+Download an uploaded file as binary content. The administrative route `/api/v1/files/{id}` requires the admin bearer token. Agents must use `/api/v1/agent/files/{id}` with both headers:
+
+```http
+Authorization: Bearer <agent-token>
+X-Agent-ID: <agent-uuid>
+```
+
+The response is an attachment (`Content-Disposition`). `400` means an invalid ID; `404` means the file was not found; `401` means the Agent credential is missing or invalid.
 
 ---
 
@@ -281,13 +315,14 @@ Upon connection, the agent must send a handshake message as JSON:
 {
   "type": "handshake",
   "uuid": "agent-uuid",
+  "token": "agent-secret-issued-by-master",
   "hostname": "my-pc",
   "os": "windows",
   "mac": "00:11:22:33:44:55"
 }
 ```
 
-The master updates or inserts the client record in the database, marks it online, and begins the read/write pumps.
+The `token` is required and must match the per-agent credential stored by its hash in PostgreSQL. The master then updates or inserts the client record, marks it online, and begins the read/write pumps.
 
 ### Incoming Commands (from master to agent)
 

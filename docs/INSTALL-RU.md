@@ -8,7 +8,7 @@
 
 ## Требования
 
-- **Go** 1.21 или выше – для сборки бэкенда
+- **Go** 1.26.4 или выше – для сборки бэкенда
 - **PostgreSQL** 15 или выше – для хранения данных
 - **Node.js** 18 или выше и **npm** – для фронтенда (React)
 - **Git** – для клонирования репозитория
@@ -32,7 +32,7 @@ cd LANdapter
 Создайте базу данных PostgreSQL и пользователя для LANdapter.
 
 ```sql
-CREATE USER landapter WITH PASSWORD 'your_password';
+CREATE USER landapter WITH PASSWORD 'your-database-password';
 CREATE DATABASE landapter OWNER landapter;
 ```
 
@@ -59,7 +59,7 @@ db:
   host: "localhost"
   port: 5432
   user: "landapter"
-  password: "your_password"
+  password: "" # задайте DB_PASSWORD в окружении
   dbname: "landapter"
   sslmode: "disable"
 ```
@@ -69,6 +69,10 @@ db:
 ```yaml
 master_host: "localhost"
 master_port: 8081
+master_http_port: 8080
+master_scheme: "ws" # use wss behind a TLS reverse proxy
+uuid: "" # filled from the credential issued by Master Settings
+token: "" # per-agent secret; keep this file private
 uuid_file: "./agent.uuid"
 installer_args:
   ".exe": "/S"
@@ -84,16 +88,11 @@ installer_args:
 
 ### Через psql
 
-```bash
-psql -h localhost -U landapter -d landapter -f migrations/001_init.up.sql
-psql -h localhost -U landapter -d landapter -f migrations/002_add_mac_up.sql
-psql -h localhost -U landapter -d landapter -f migrations/003_add_devices_up.sql
-psql -h localhost -U landapter -d landapter -f migrations/004_add_snapshots.up.sql
-```
-
-### Через Makefile
+Для локального запуска задайте пароль БД и отдельный административный токен (не менее 32 символов):
 
 ```bash
+export DB_PASSWORD='your-database-password' # тот же пароль, что задан пользователю landapter выше
+export LANDAPTER_ADMIN_TOKEN="$(openssl rand -hex 32)"
 make migrate-up
 ```
 
@@ -144,21 +143,7 @@ go run cmd/master/main.go
 
 ---
 
-## 8. Запуск агента
-
-В отдельном терминале (или на другой машине):
-
-```bash
-./bin/agent
-# или
-go run cmd/agent/main.go
-```
-
-Агент подключится к мастеру и будет ждать команд.
-
----
-
-## 9. Установка и запуск фронтенда
+## 8. Установка и запуск фронтенда
 
 Перейдите в папку `web/` и установите зависимости:
 
@@ -173,7 +158,7 @@ npm install
 npm run dev
 ```
 
-Фронтенд будет доступен по адресу `http://localhost:3000`. Он автоматически проксирует запросы к API мастера (`/api` → `http://localhost:8080`).
+Откройте `http://localhost:3000`, перейдите в «Настройки», укажите `LANDAPTER_ADMIN_TOKEN`, сохраните подключение и выпустите персональный токен агента. Фронтенд проксирует API мастера (`/api` → `http://localhost:8080`); настройте учётные данные агента до его запуска.
 
 Для production-сборки:
 
@@ -185,20 +170,39 @@ npm run build
 
 ---
 
-## 10. Запуск через Docker Compose
+## 9. Запуск агента
 
-Самый быстрый способ поднять полный стек (PostgreSQL + мастер + агент) – использовать Docker Compose.
+Сначала в настройках Master выпустите персональный токен и перенесите `agent_id` и `token` в `configs/agent.yaml` как поля `uuid` и `token`. Затем в отдельном терминале (или на другой машине):
 
 ```bash
-docker-compose up -d
+./bin/agent
+# или
+go run cmd/agent/main.go
 ```
 
-Это запустит:
-- PostgreSQL на порту 5432
-- Мастер на портах 8080 (HTTP) и 8081 (WebSocket)
-- Агент (один экземпляр, подключенный к мастеру)
+Агент подключится к мастеру и будет ждать команд.
 
-Фронтенд нужно запускать отдельно (см. шаг 9) или собирать и раздавать статику через Nginx.
+---
+
+## 10. Запуск через Docker Compose
+
+Быстрый способ запустить PostgreSQL и мастер – использовать Docker Compose. Агентов запускают отдельно после выдачи персональных токенов.
+
+```bash
+cp .env.example .env
+# Отредактируйте .env: задайте разные случайные POSTGRES_PASSWORD и LANDAPTER_ADMIN_TOKEN
+docker-compose up -d postgres
+set -a
+. ./.env
+set +a
+export DB_PASSWORD="$POSTGRES_PASSWORD"
+make migrate-up
+docker-compose up -d master
+```
+
+Это запустит PostgreSQL и мастер. Опубликованные порты по умолчанию привязаны только к `127.0.0.1`; не открывайте их напрямую для удалённых агентов — используйте TLS reverse proxy. В настройках панели выпустите персональный токен, заполните `uuid` и `token` в `configs/agent.yaml`, затем запускайте каждый агент отдельно.
+
+Фронтенд нужно запускать отдельно (см. шаг 8) или собирать и раздавать статику через Nginx.
 
 ---
 
@@ -207,12 +211,15 @@ docker-compose up -d
 ### Проверка API мастера
 
 ```bash
-curl http://localhost:8080/api/v1/clients
+curl -H "Authorization: Bearer $LANDAPTER_ADMIN_TOKEN" \
+  http://localhost:8080/api/v1/clients
 ```
 
 Должен вернуться пустой массив `[]` или список клиентов.
 
 ### Проверка WebSocket агента
+
+Перед первым запуском откройте «Настройки» в панели Master, выпустите токен агента и перенесите `agent_id`/`token` в `configs/agent.yaml` как поля `uuid` и `token`. Токен показывается один раз. Для удалённых подключений используйте TLS (`https`/`wss`) через обратный прокси; не передавайте токены по обычному HTTP через недоверенные сети.
 
 В логах агента должно быть сообщение:
 

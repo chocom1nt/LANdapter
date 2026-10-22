@@ -6,7 +6,7 @@
 
 LANdapter は、クライアント管理とソフトウェア配布のための RESTful HTTP API と、エージェントとのリアルタイム通信用 WebSocket エンドポイントを提供します。HTTP API は `master.yaml` で設定したポート（既定 `8080`）で提供されます。WebSocket は別ポート（既定 `8081`）です。
 
-> **認証**: 現行バージョンでは認証を実装していません。信頼できる内部ネットワーク向けです。追加のセキュリティ対策なしに API をインターネットに公開しないでください。
+> **認証:** 管理用 REST エンドポイントには `Authorization: Bearer $LANDAPTER_ADMIN_TOKEN` が必要です。Master のプロセス環境に 32 文字以上のランダムな秘密値を設定してください。Agent は Settings で発行された個別 token を使用し、PostgreSQL には SHA-256 ハッシュだけが保存されます。Agent のファイル取得は `/api/v1/agent/files/{id}` に `Authorization: Bearer <agent-token>` と `X-Agent-ID: <uuid>` を付けて行います。信頼できないネットワークでは TLS proxy 経由の HTTPS/WSS を使ってください。
 
 ---
 
@@ -19,7 +19,25 @@ LANdapter は、クライアント管理とソフトウェア配布のための 
 
 ## HTTP API エンドポイント
 
-すべてのエンドポイントは JSON を返します。エラーは適切な HTTP ステータスコードとプレーンテキストのメッセージで返されます。
+管理用エンドポイントの多くは JSON を返します。ファイルダウンロードは `Content-Disposition` 付きのバイナリを返し、エラーは HTTP ステータスコードとテキストメッセージで返されます。
+
+---
+
+### `POST /api/v1/agents/enroll`
+
+Agent ごとの資格情報を発行します（管理者 bearer token が必要）。`{}` は新しい ID を作成し、`{"agent_id":"<existing-uuid>"}` は既存 ID の token を再発行します。平文 token は応答で一度だけ返され、PostgreSQL には SHA-256 ハッシュのみ保存されます。再発行すると以前の token は無効になり、アクティブな接続が閉じられます。
+
+**レスポンス** – `200 OK`
+
+```json
+{
+  "agent_id": "550e8400-e29b-41d4-a716-446655440000",
+  "token": "one-time-secret",
+  "agent_config": {"uuid": "550e8400-e29b-41d4-a716-446655440000", "token": "one-time-secret"}
+}
+```
+
+値を Agent の非公開 `configs/agent.yaml` に `uuid` と `token` として保存してください。
 
 ---
 
@@ -136,6 +154,19 @@ LANdapter は、クライアント管理とソフトウェア配布のための 
 **エラー**
 
 - `500 Internal Server Error` – アップロードディレクトリを読めない。
+
+---
+
+### `GET /api/v1/files/{id}` と `GET /api/v1/agent/files/{id}`
+
+アップロード済みファイルをバイナリでダウンロードします。管理用 `/api/v1/files/{id}` には管理者 bearer token が必要です。Agent は `/api/v1/agent/files/{id}` を次の両ヘッダー付きで使用します。
+
+```http
+Authorization: Bearer <agent-token>
+X-Agent-ID: <agent-uuid>
+```
+
+応答は添付ファイル（`Content-Disposition`）です。`400` は ID 不正、`404` はファイルなし、`401` は Agent 資格情報の欠落または不正を示します。
 
 ---
 
@@ -281,6 +312,7 @@ Web サイトからドライバを検出するためのプレースホルダー�
 {
   "type": "handshake",
   "uuid": "agent-uuid",
+  "token": "agent-secret-issued-by-master",
   "hostname": "my-pc",
   "os": "windows",
   "mac": "00:11:22:33:44:55"

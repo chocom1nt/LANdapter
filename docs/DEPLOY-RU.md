@@ -6,6 +6,12 @@
 
 ---
 
+
+## Секреты и регистрация агентов
+
+Перед запуском Master задайте `LANDAPTER_ADMIN_TOKEN` случайной строкой минимум из 32 символов и `DB_PASSWORD` — пароль пользователя PostgreSQL. Без административного токена сервер не стартует. Не публикуйте порты 8080/8081 напрямую в недоверенную сеть; используйте HTTPS/WSS через TLS reverse proxy. После запуска примените миграции `make migrate-up`, затем в панели Master → Настройки выпустите токен каждому агенту. Секрет агента показывается только один раз и должен быть записан в `configs/agent.yaml` в поля `uuid` и `token` с ограниченными правами чтения файла.
+
+
 ## Подготовка сервера
 
 ### Требования к оборудованию
@@ -26,8 +32,8 @@ sudo apt update && sudo apt upgrade -y
 **Установка Go:**
 
 ```bash
-wget https://go.dev/dl/go1.21.5.linux-amd64.tar.gz
-sudo tar -C /usr/local -xzf go1.21.5.linux-amd64.tar.gz
+wget https://go.dev/dl/go1.26.4.linux-amd64.tar.gz
+sudo tar -C /usr/local -xzf go1.26.4.linux-amd64.tar.gz
 echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
 source ~/.bashrc
 ```
@@ -55,7 +61,7 @@ sudo apt install -y nodejs
 
 ```sql
 sudo -u postgres psql
-CREATE USER landapter WITH PASSWORD 'your_password';
+CREATE USER landapter WITH PASSWORD 'your-database-password';
 CREATE DATABASE landapter OWNER landapter;
 GRANT ALL PRIVILEGES ON DATABASE landapter TO landapter;
 \q
@@ -65,9 +71,10 @@ GRANT ALL PRIVILEGES ON DATABASE landapter TO landapter;
 
 ```bash
 psql -h localhost -U landapter -d landapter -f migrations/001_init.up.sql
-psql -h localhost -U landapter -d landapter -f migrations/002_add_mac_up.sql
-psql -h localhost -U landapter -d landapter -f migrations/003_add_devices_up.sql
+psql -h localhost -U landapter -d landapter -f migrations/002_add_mac.up.sql
+psql -h localhost -U landapter -d landapter -f migrations/003_add_devices.up.sql
 psql -h localhost -U landapter -d landapter -f migrations/004_add_snapshots.up.sql
+psql -h localhost -U landapter -d landapter -f migrations/005_agent_credentials.up.sql
 ```
 
 ---
@@ -76,7 +83,7 @@ psql -h localhost -U landapter -d landapter -f migrations/004_add_snapshots.up.s
 
 ### Конфигурация
 
-Создайте файл `/etc/landapter/master.yaml`:
+Отредактируйте `/opt/landapter/configs/master.yaml` (мастер ищет конфигурацию относительно рабочей директории):
 
 ```yaml
 host: "0.0.0.0"
@@ -86,7 +93,7 @@ db:
   host: "localhost"
   port: 5432
   user: "landapter"
-  password: "your_password"
+  password: "" # задайте DB_PASSWORD в окружении сервиса
   dbname: "landapter"
   sslmode: "disable"
 ```
@@ -118,20 +125,30 @@ Type=simple
 User=landapter
 Group=landapter
 WorkingDirectory=/opt/landapter
-ExecStart=/opt/landapter/bin/master --config /etc/landapter/master.yaml
+ExecStart=/opt/landapter/bin/master
 Restart=always
 RestartSec=5
-Environment="DB_PASSWORD=your_password"
+EnvironmentFile=/etc/landapter/landapter.env
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-Создайте пользователя `landapter`:
+Создайте пользователя сервиса и защищённый файл окружения. В `DB_PASSWORD` укажите тот же пароль, что использовали при создании пользователя PostgreSQL, а в `LANDAPTER_ADMIN_TOKEN` — отдельный случайный секрет минимум из 32 символов (можно сгенерировать командой `openssl rand -hex 32`):
 
 ```bash
 sudo useradd -r -s /bin/false landapter
 sudo chown -R landapter:landapter /opt/landapter
+sudo install -d -o root -g landapter -m 0750 /etc/landapter
+sudo install -o root -g landapter -m 0640 /dev/null /etc/landapter/landapter.env
+sudoedit /etc/landapter/landapter.env
+```
+
+Файл должен содержать (замените оба примера реальными значениями):
+
+```dotenv
+DB_PASSWORD=your-database-password
+LANDAPTER_ADMIN_TOKEN=replace-with-output-of-openssl-rand-hex-32
 ```
 
 Запустите сервис:
@@ -151,11 +168,15 @@ sudo systemctl status landapter-master
 
 ### Конфигурация агента
 
-Создайте `/etc/landapter/agent.yaml`:
+Используйте `/opt/landapter/configs/agent.yaml` относительно рабочей директории агента:
 
 ```yaml
 master_host: "192.168.1.100"   # IP мастера
 master_port: 8081
+master_http_port: 8080
+master_scheme: "ws" # для удалённой сети используйте wss и порт TLS-прокси
+uuid: "<agent-id-issued-by-master>"
+token: "<one-time-agent-token-issued-by-master>"
 uuid_file: "/var/lib/landapter/agent.uuid"
 installer_args:
   ".exe": "/S"
@@ -172,7 +193,8 @@ installer_args:
 **Пример с NSSM:**
 
 ```cmd
-nssm install LANdapterAgent "C:\landapter\bin\agent.exe" --config C:\landapter\configs\agent.yaml
+nssm install LANdapterAgent "C:\landapter\bin\agent.exe"
+# В NSSM задайте AppDirectory = C:\landapter, чтобы находился configs\agent.yaml.
 nssm start LANdapterAgent
 ```
 
@@ -220,7 +242,7 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    location /ws/ {
+    location = /ws {
         proxy_pass http://localhost:8081;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
@@ -238,6 +260,10 @@ server {
 sudo ln -s /etc/nginx/sites-available/landapter /etc/nginx/sites-enabled/
 sudo systemctl reload nginx
 ```
+
+Путь WebSocket — точно `/ws` (завершающий слэш не требуется). Если API и WebSocket публикуются через один HTTPS-порт (обычно 443), укажите в конфигурации агента `master_scheme: "wss"`, `master_port: 443` и `master_http_port: 443`.
+
+Путь WebSocket — точно `/ws` (завершающий слэш не требуется). Если API и WebSocket публикуются через один HTTPS-порт (обычно 443), укажите в конфигурации агента `master_scheme: "wss"`, `master_port: 443` и `master_http_port: 443`.
 
 ---
 

@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/go-1.21+-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">
+  <img src="https://img.shields.io/badge/go-1.26.4+-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">
   <img src="https://img.shields.io/badge/react-18.2-61DAFB?style=flat&logo=react&logoColor=white" alt="React">
   <img src="https://img.shields.io/badge/platform-windows%20%7C%20linux-lightgrey" alt="Platform">
   <img src="https://img.shields.io/badge/postgresql-15-4169E1?style=flat&logo=postgresql&logoColor=white" alt="PostgreSQL">
@@ -31,7 +31,7 @@
 - **Точки восстановления** – автоматическое создание точки восстановления перед установкой на Windows.
 - **Веб-интерфейс** – удобная панель управления на React с тёмной темой, библиотекой файлов и мастером установки.
 - **Гибкая конфигурация** – YAML-файлы, поддержка переменных окружения.
-- **Кроссплатформенность** – мастер и агенты работают на Windows и Linux (агент также поддерживает macOS в режиме ограниченной функциональности).
+- **Кроссплатформенность** – Master и Agent поддерживают Windows и Linux. Выполнение установок на macOS пока не поддерживается.
 
 ---
 
@@ -39,7 +39,7 @@
 
 ### Требования
 
-- Go 1.21+
+- Go 1.26.4+
 - PostgreSQL 15+
 - Node.js 18+ (для фронтенда)
 - Make (опционально)
@@ -63,19 +63,30 @@ go mod download
 
 ```bash
 cd web
-npm install
+npm ci
 cd ..
+```
+
+Перед применением миграций создайте отдельного пользователя и базу PostgreSQL от имени администратора PostgreSQL (например, в `psql`):
+
+```sql
+CREATE USER landapter WITH PASSWORD 'ваш-пароль-БД';
+CREATE DATABASE landapter OWNER landapter;
+```
+
+Ниже в `DB_PASSWORD` укажите тот же пароль. Если пользователь или база уже существуют, не создавайте их повторно — проверьте владельца и права.
+
+Перед применением миграций и запуском Master задайте пароль PostgreSQL и отдельный секрет администратора (не менее 32 символов):
+
+```bash
+export DB_PASSWORD='ваш-пароль-БД'
+export LANDAPTER_ADMIN_TOKEN="$(openssl rand -hex 32)"
 ```
 
 Примените миграции базы данных:
 
 ```bash
 make migrate-up
-# или вручную:
-psql -h localhost -U postgres -d landapter -f migrations/001_init.up.sql
-psql -h localhost -U postgres -d landapter -f migrations/002_add_mac_up.sql
-psql -h localhost -U postgres -d landapter -f migrations/003_add_devices_up.sql
-psql -h localhost -U postgres -d landapter -f migrations/004_add_snapshots.up.sql
 ```
 
 Запустите мастер:
@@ -84,22 +95,22 @@ psql -h localhost -U postgres -d landapter -f migrations/004_add_snapshots.up.sq
 go run cmd/master/main.go
 ```
 
-Запустите агента (в отдельном терминале):
-
-```bash
-go run cmd/agent/main.go
-```
-
-Запустите фронтенд (в третьем терминале):
+Запустите фронтенд (в отдельном терминале):
 
 ```bash
 cd web
 npm run dev
 ```
 
-Откройте в браузере `http://localhost:3000`.
+Откройте `http://localhost:3000`, перейдите в «Настройки», укажите `LANDAPTER_ADMIN_TOKEN`, сохраните подключение и выпустите персональный токен агента. Токен показывается один раз: перенесите `agent_id` и `token` в `configs/agent.yaml` как поля `uuid` и `token`.
 
-Подробная инструкция по развёртыванию доступна в [docs/INSTALL.md](docs/INSTALL.md).
+Только после сохранения учётных данных запустите агента в другом терминале:
+
+```bash
+go run cmd/agent/main.go
+```
+
+Подробная инструкция по развёртыванию доступна в [docs/INSTALL-RU.md](docs/INSTALL-RU.md).
 
 ---
 
@@ -133,21 +144,14 @@ npm run build
 
 ### Docker-образы
 
-Для мастера и агента предусмотрены отдельные Dockerfile:
+Корневой `Dockerfile` собирает образ Master (в него также включён бинарник агента), а `Dockerfile.agent` — отдельный образ Agent:
 
 ```bash
-# Мастер
-docker build -f Dockerfile.master -t landapter-master .
-
-# Агент
+docker build -t landapter-master .
 docker build -f Dockerfile.agent -t landapter-agent .
 ```
 
-Или запустите полный стек через `docker-compose` (с PostgreSQL):
-
-```bash
-docker-compose up -d
-```
+`docker-compose.yml` запускает **только PostgreSQL и Master**. Фронтенд и агенты автоматически не запускаются. Скопируйте `configs/master.yaml.example` в `configs/master.yaml`, настройте `.env`, примените SQL-миграции и затем запускайте сервисы по [docs/INSTALL-RU.md](docs/INSTALL-RU.md). Фронтенд запускается отдельно либо раздаётся веб-сервером из `web/dist/`.
 
 ---
 
@@ -169,7 +173,7 @@ LANdapter/
 ├── configs/              # Примеры конфигурационных файлов
 ├── uploads/              # Папка для загруженных файлов (создаётся автоматически)
 ├── docker-compose.yml
-├── Makefile
+├── makefile
 ├── go.mod
 └── README.md
 ```
@@ -178,14 +182,14 @@ LANdapter/
 
 ## Документация
 
-Полная документация находится в папке [docs/](docs/):
+Полный каталог документации: [docs/README.md](docs/README.md). Начните с руководства, которое соответствует вашей задаче:
 
-- [API Reference](docs/README.API-RU.md) – описание REST и WebSocket эндпоинтов ([English](docs/README.API.md) · [中文](docs/README.API-ZH.md) · [日本語](docs/README.API-JA.md) · [Español](docs/README.API-ES.md)).
-- [Инструкция по установке](docs/INSTALL.md) – детальное руководство по развёртыванию.
-- [Конфигурация](docs/CONFIG.md) – описание параметров `master.yaml` и `agent.yaml`.
-- [Архитектура](docs/ARCHITECTURE.md) – принципы работы, жизненный цикл заданий, протокол WebSocket.
-- [Развёртывание в продакшн](docs/DEPLOY.md) – настройка сервисов, прокси, мониторинга.
-- [FAQ](docs/FAQ.md) – частые вопросы и решения проблем.
+- [Установка](docs/INSTALL-RU.md) — требования, база данных, миграции, запуск Master/UI и регистрация агента.
+- [Конфигурация](docs/CONFIG-RU.md) — параметры Master и Agent и переменные окружения.
+- [Архитектура](docs/ARCHITECTURE-RU.md) — компоненты, учётные данные, WebSocket и текущие ограничения.
+- [Развёртывание в production](docs/DEPLOY-RU.md) — TLS-прокси, защита сервисов, резервные копии и обновления.
+- [API](docs/README.API-RU.md) — REST-эндпоинты и протокол WebSocket.
+- [FAQ](docs/FAQ-RU.md) и [участие в разработке](docs/CONTRIBUTING-RU.md).
 
 ---
 

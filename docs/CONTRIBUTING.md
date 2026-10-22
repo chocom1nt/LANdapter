@@ -85,9 +85,8 @@ Use [Conventional Commits](https://www.conventionalcommits.org/) when possible:
 
 ```bash
 make test          # all tests
-make test-unit     # unit only
-make test-integration  # needs PostgreSQL
-make test-cover    # coverage
+make test-unit     # tests in internal/ and storage/
+make test-cover    # coverage report
 ```
 
 New behavior should include tests.
@@ -100,13 +99,7 @@ New behavior should include tests.
 golangci-lint run ./...
 ```
 
-**Frontend (`web/`):**
-
-```bash
-npm run lint   # if configured
-```
-
-Match existing React/Tailwind style.
+**Frontend (`web/`):** `package.json` currently defines `dev`, `build`, and `preview`, but no lint script. Run `npm run build` to verify the production bundle and follow the existing React/Tailwind style.
 
 ### 7. Formatting
 

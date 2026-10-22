@@ -6,6 +6,12 @@ This guide covers deploying LANdapter in production with reliability, security, 
 
 ---
 
+
+## Secrets and agent enrollment
+
+Set `LANDAPTER_ADMIN_TOKEN` to a random string of at least 32 characters and `DB_PASSWORD` to the PostgreSQL password before starting Master. Master refuses to start without the administrative token. Do not expose ports 8080/8081 directly to untrusted networks; use HTTPS/WSS through a TLS reverse proxy. Apply migrations with `make migrate-up`, then issue one individual token per agent in Master → Settings. The secret is shown only once and must be saved in `configs/agent.yaml` as `uuid` and `token` with restrictive file permissions.
+
+
 ## Server preparation
 
 ### Hardware
@@ -26,8 +32,8 @@ sudo apt update && sudo apt upgrade -y
 **Install Go:**
 
 ```bash
-wget https://go.dev/dl/go1.21.5.linux-amd64.tar.gz
-sudo tar -C /usr/local -xzf go1.21.5.linux-amd64.tar.gz
+wget https://go.dev/dl/go1.26.4.linux-amd64.tar.gz
+sudo tar -C /usr/local -xzf go1.26.4.linux-amd64.tar.gz
 echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
 source ~/.bashrc
 ```
@@ -53,7 +59,7 @@ sudo apt install -y nodejs
 
 ```sql
 sudo -u postgres psql
-CREATE USER landapter WITH PASSWORD 'your_password';
+CREATE USER landapter WITH PASSWORD 'your-database-password';
 CREATE DATABASE landapter OWNER landapter;
 GRANT ALL PRIVILEGES ON DATABASE landapter TO landapter;
 \q
@@ -63,9 +69,10 @@ Apply migrations:
 
 ```bash
 psql -h localhost -U landapter -d landapter -f migrations/001_init.up.sql
-psql -h localhost -U landapter -d landapter -f migrations/002_add_mac_up.sql
-psql -h localhost -U landapter -d landapter -f migrations/003_add_devices_up.sql
+psql -h localhost -U landapter -d landapter -f migrations/002_add_mac.up.sql
+psql -h localhost -U landapter -d landapter -f migrations/003_add_devices.up.sql
 psql -h localhost -U landapter -d landapter -f migrations/004_add_snapshots.up.sql
+psql -h localhost -U landapter -d landapter -f migrations/005_agent_credentials.up.sql
 ```
 
 ---
@@ -74,7 +81,7 @@ psql -h localhost -U landapter -d landapter -f migrations/004_add_snapshots.up.s
 
 ### Configuration
 
-Create `/etc/landapter/master.yaml`:
+Edit `/opt/landapter/configs/master.yaml` (the master reads this path relative to its working directory):
 
 ```yaml
 host: "0.0.0.0"
@@ -84,7 +91,7 @@ db:
   host: "localhost"
   port: 5432
   user: "landapter"
-  password: "your_password"
+  password: "" # set DB_PASSWORD in the service environment
   dbname: "landapter"
   sslmode: "disable"
 ```
@@ -114,20 +121,30 @@ Type=simple
 User=landapter
 Group=landapter
 WorkingDirectory=/opt/landapter
-ExecStart=/opt/landapter/bin/master --config /etc/landapter/master.yaml
+ExecStart=/opt/landapter/bin/master
 Restart=always
 RestartSec=5
-Environment="DB_PASSWORD=your_password"
+EnvironmentFile=/etc/landapter/landapter.env
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-Create user and permissions:
+Create the service user and a protected environment file. Put the same database password used when creating the PostgreSQL user in `DB_PASSWORD`, and a separate random value of at least 32 characters in `LANDAPTER_ADMIN_TOKEN` (generate one with `openssl rand -hex 32`):
 
 ```bash
 sudo useradd -r -s /bin/false landapter
 sudo chown -R landapter:landapter /opt/landapter
+sudo install -d -o root -g landapter -m 0750 /etc/landapter
+sudo install -o root -g landapter -m 0640 /dev/null /etc/landapter/landapter.env
+sudoedit /etc/landapter/landapter.env
+```
+
+The environment file must contain (replace both example values):
+
+```dotenv
+DB_PASSWORD=your-database-password
+LANDAPTER_ADMIN_TOKEN=replace-with-output-of-openssl-rand-hex-32
 ```
 
 Enable service:
@@ -145,11 +162,15 @@ sudo systemctl status landapter-master
 
 ### Configuration
 
-`/etc/landapter/agent.yaml`:
+`/opt/landapter/configs/agent.yaml` (relative to the agent's working directory):
 
 ```yaml
 master_host: "192.168.1.100"
 master_port: 8081
+master_http_port: 8080
+master_scheme: "ws" # use wss and the TLS proxy's port for remote networks
+uuid: "<agent-id-issued-by-master>"
+token: "<one-time-agent-token-issued-by-master>"
 uuid_file: "/var/lib/landapter/agent.uuid"
 installer_args:
   ".exe": "/S"
@@ -160,7 +181,8 @@ Build and deploy `bin/agent` to each target machine.
 ### Windows service (NSSM example)
 
 ```cmd
-nssm install LANdapterAgent "C:\landapter\bin\agent.exe" --config C:\landapter\configs\agent.yaml
+nssm install LANdapterAgent "C:\landapter\bin\agent.exe"
+# In NSSM, set AppDirectory to C:\landapter so configs\agent.yaml is found.
 nssm start LANdapterAgent
 ```
 
@@ -206,7 +228,7 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    location /ws/ {
+    location = /ws {
         proxy_pass http://localhost:8081;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;

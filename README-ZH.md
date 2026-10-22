@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/go-1.21+-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">
+  <img src="https://img.shields.io/badge/go-1.26.4+-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">
   <img src="https://img.shields.io/badge/react-18.2-61DAFB?style=flat&logo=react&logoColor=white" alt="React">
   <img src="https://img.shields.io/badge/platform-windows%20%7C%20linux-lightgrey" alt="Platform">
   <img src="https://img.shields.io/badge/postgresql-15-4169E1?style=flat&logo=postgresql&logoColor=white" alt="PostgreSQL">
@@ -31,7 +31,7 @@
 - **还原点** – 在 Windows 上安装前自动创建系统还原点。
 - **Web 界面** – 基于 React 的管理面板，深色主题、文件库与安装向导。
 - **灵活配置** – YAML 配置文件，支持环境变量。
-- **跨平台** – 主节点与代理支持 Windows 和 Linux（代理在 macOS 上功能有限）。
+- **跨平台** – Master 和 Agent 支持 Windows 与 Linux。目前不支持在 macOS 上执行安装。
 
 ---
 
@@ -39,7 +39,7 @@
 
 ### 环境要求
 
-- Go 1.21+
+- Go 1.26.4+
 - PostgreSQL 15+
 - Node.js 18+（前端）
 - Make（可选）
@@ -63,19 +63,30 @@ go mod download
 
 ```bash
 cd web
-npm install
+npm ci
 cd ..
+```
+
+执行迁移前，请以 PostgreSQL 管理员身份创建专用用户和数据库（例如在 `psql` 中执行）：
+
+```sql
+CREATE USER landapter WITH PASSWORD 'your-database-password';
+CREATE DATABASE landapter OWNER landapter;
+```
+
+下方 `DB_PASSWORD` 应使用同一个数据库密码。如果用户或数据库已经存在，请勿重复创建，而应检查其所有者和权限。
+
+在执行迁移或启动主节点前，设置 PostgreSQL 密码以及独立的、至少 32 个字符的管理员密钥：
+
+```bash
+export DB_PASSWORD='your-database-password'
+export LANDAPTER_ADMIN_TOKEN="$(openssl rand -hex 32)"
 ```
 
 执行数据库迁移：
 
 ```bash
 make migrate-up
-# 或手动：
-psql -h localhost -U postgres -d landapter -f migrations/001_init.up.sql
-psql -h localhost -U postgres -d landapter -f migrations/002_add_mac_up.sql
-psql -h localhost -U postgres -d landapter -f migrations/003_add_devices_up.sql
-psql -h localhost -U postgres -d landapter -f migrations/004_add_snapshots.up.sql
 ```
 
 启动主节点：
@@ -84,22 +95,22 @@ psql -h localhost -U postgres -d landapter -f migrations/004_add_snapshots.up.sq
 go run cmd/master/main.go
 ```
 
-启动代理（另开终端）：
-
-```bash
-go run cmd/agent/main.go
-```
-
-启动前端（第三个终端）：
+在另一个终端启动前端：
 
 ```bash
 cd web
 npm run dev
 ```
 
-在浏览器打开 `http://localhost:3000`。
+打开 `http://localhost:3000`，进入 Settings，填入 `LANDAPTER_ADMIN_TOKEN` 并保存连接，然后为代理签发独立令牌。令牌只显示一次；请将返回的 `agent_id` 和 `token` 分别保存到 `configs/agent.yaml` 的 `uuid` 和 `token` 字段。
 
-详细部署说明见 [docs/INSTALL.md](docs/INSTALL.md)。
+保存代理凭据后，再在另一个终端启动代理：
+
+```bash
+go run cmd/agent/main.go
+```
+
+详细部署说明见 [docs/INSTALL-ZH.md](docs/INSTALL-ZH.md)。
 
 ---
 
@@ -131,17 +142,13 @@ npm run build
 
 ```bash
 # 主节点
-docker build -f Dockerfile.master -t landapter-master .
+docker build -t landapter-master .
 
 # 代理
 docker build -f Dockerfile.agent -t landapter-agent .
 ```
 
-或使用 `docker-compose` 启动完整栈（含 PostgreSQL）：
-
-```bash
-docker-compose up -d
-```
+`docker-compose.yml` **只启动 PostgreSQL 和 Master**，不会启动前端或 Agent。请先将 `configs/master.yaml.example` 复制为 `configs/master.yaml`，配置 `.env` 并应用 SQL 迁移。详见 [docs/INSTALL-ZH.md](docs/INSTALL-ZH.md)。前端需单独启动，或通过 Web 服务器发布 `web/dist/`。
 
 ---
 
@@ -163,7 +170,7 @@ LANdapter/
 ├── configs/              # 配置示例
 ├── uploads/              # 上传目录（自动创建）
 ├── docker-compose.yml
-├── Makefile
+├── makefile
 ├── go.mod
 └── README.md
 ```
@@ -172,14 +179,14 @@ LANdapter/
 
 ## 文档
 
-完整文档位于 [docs/](docs/)：
+完整文档索引见 [docs/README.md](docs/README.md)。请根据任务从相应指南开始：
 
-- [API 参考](docs/README.API-ZH.md) – REST 与 WebSocket 端点（[English](docs/README.API.md) · [Русский](docs/README.API-RU.md) · [日本語](docs/README.API-JA.md) · [Español](docs/README.API-ES.md)）。
-- [安装指南](docs/INSTALL.md) – 详细部署步骤。
-- [配置](docs/CONFIG.md) – `master.yaml` 与 `agent.yaml` 参数说明。
-- [架构](docs/ARCHITECTURE.md) – 设计、任务生命周期、WebSocket 协议。
-- [生产部署](docs/DEPLOY.md) – 服务、反向代理、监控。
-- [FAQ](docs/FAQ.md) – 常见问题与故障排除。
+- [安装指南](docs/INSTALL-ZH.md)：环境要求、数据库、迁移、Master/UI 启动与 Agent 注册。
+- [配置](docs/CONFIG-ZH.md)：Master 和 Agent 配置项及环境变量。
+- [架构](docs/ARCHITECTURE-ZH.md)：组件、凭据流程、WebSocket 与当前限制。
+- [生产部署](docs/DEPLOY-ZH.md)：TLS 代理、服务加固、备份与升级。
+- [API 参考](docs/README.API-ZH.md)：REST 端点和 WebSocket 协议。
+- [常见问题](docs/FAQ-ZH.md) 与 [贡献指南](docs/CONTRIBUTING-ZH.md)。
 
 ---
 

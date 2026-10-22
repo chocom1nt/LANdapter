@@ -6,7 +6,7 @@
 
 LANdapter 提供 RESTful HTTP API，用于管理客户端和分发软件安装，并提供 WebSocket 端点以与代理实时通信。所有 HTTP 端点运行在 `master.yaml` 中配置的端口（默认 `8080`）。WebSocket 使用独立端口（默认 `8081`）。
 
-> **身份验证**：当前版本未实现身份验证，适用于受信任的内网环境。请勿在未增加额外安全措施的情况下将 API 暴露到公网。
+> **身份验证：** 所有管理 REST 端点都要求 `Authorization: Bearer $LANDAPTER_ADMIN_TOKEN`。请在 Master 进程环境中设置至少 32 个字符的随机密钥。每个 Agent 使用 Settings 中签发的独立 token；PostgreSQL 只存储其 SHA-256 哈希。Agent 通过 `/api/v1/agent/files/{id}` 下载文件时，需要发送 `Authorization: Bearer <agent-token>` 和 `X-Agent-ID: <uuid>`。在不可信网络中，请通过 TLS 反向代理使用 HTTPS/WSS。
 
 ---
 
@@ -19,7 +19,25 @@ LANdapter 提供 RESTful HTTP API，用于管理客户端和分发软件安装�
 
 ## HTTP API 端点
 
-所有端点返回 JSON。错误会伴随相应的 HTTP 状态码和纯文本错误消息。
+大多数管理端点返回 JSON。文件下载端点返回带有 `Content-Disposition` 的二进制内容；错误使用相应的 HTTP 状态码和纯文本消息。
+
+---
+
+### `POST /api/v1/agents/enroll`
+
+签发 Agent 专属凭据（需要管理员 bearer token）。发送 `{}` 会创建新 ID；发送 `{"agent_id":"<existing-uuid>"}` 会为现有 ID 轮换 token。明文 token 只在响应中返回一次；PostgreSQL 只保存 SHA-256 哈希。轮换后旧 token 失效，活动连接会关闭。
+
+**响应** – `200 OK`
+
+```json
+{
+  "agent_id": "550e8400-e29b-41d4-a716-446655440000",
+  "token": "one-time-secret",
+  "agent_config": {"uuid": "550e8400-e29b-41d4-a716-446655440000", "token": "one-time-secret"}
+}
+```
+
+请将这些值私密保存到 Agent 的 `configs/agent.yaml` 中，分别作为 `uuid` 和 `token`。
 
 ---
 
@@ -136,6 +154,19 @@ LANdapter 提供 RESTful HTTP API，用于管理客户端和分发软件安装�
 **错误**
 
 - `500 Internal Server Error` – 无法读取上传目录。
+
+---
+
+### `GET /api/v1/files/{id}` 与 `GET /api/v1/agent/files/{id}`
+
+以二进制内容下载已上传文件。管理端点 `/api/v1/files/{id}` 需要管理员 bearer token。Agent 必须使用 `/api/v1/agent/files/{id}` 并发送以下两个请求头：
+
+```http
+Authorization: Bearer <agent-token>
+X-Agent-ID: <agent-uuid>
+```
+
+响应是附件（`Content-Disposition`）。`400` 表示 ID 无效，`404` 表示文件不存在，`401` 表示 Agent 凭据缺失或无效。
 
 ---
 
@@ -281,6 +312,7 @@ LANdapter 提供 RESTful HTTP API，用于管理客户端和分发软件安装�
 {
   "type": "handshake",
   "uuid": "agent-uuid",
+  "token": "agent-secret-issued-by-master",
   "hostname": "my-pc",
   "os": "windows",
   "mac": "00:11:22:33:44:55"
