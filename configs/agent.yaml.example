@@ -1,0 +1,12 @@
+# Set uuid and token to the one-time credential issued in Master > Settings.
+# Keep this file readable only by the account that runs the agent.
+master_host: "localhost"
+master_port: 8081
+master_http_port: 8080
+# Use wss when the Master endpoints are published through a TLS reverse proxy.
+# Plain ws/http should be used only on trusted isolated networks.
+master_scheme: "ws"
+uuid: ""
+token: ""
+uuid_file: "agent.uuid"
+installer_args: {}
