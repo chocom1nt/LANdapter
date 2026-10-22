@@ -24,7 +24,7 @@ func TestHandleClients(t *testing.T) {
 	}
 	defer db.Close()
 	sqlxDB := sqlx.NewDb(db, "postgres")
-	store := storage.NewPostgresStorageWithDB(sqlxDB) // ✅ исправлено
+	store := storage.NewPostgresStorageWithDB(sqlxDB) 
 	logger := common.InitLogger(slog.LevelInfo)
 	srv := NewServer(&common.MasterConfig{}, logger, store)
 

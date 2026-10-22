@@ -11,10 +11,12 @@ import (
 	"strings"
 
 	"log/slog"
+	"mime"
 	"net/http"
 	"net/url"
 	"os"
 	"runtime"
+	"strconv"
 	"time"
 
 	"github.com/chocom1nt/LANdapter/internal/common"
@@ -37,6 +39,7 @@ type Agent struct {
 type handshakeMsg struct {
 	Type     string `json:"type"`
 	UUID     string `json:"uuid"`
+	Token    string `json:"token"`
 	Hostname string `json:"hostname"`
 	OS       string `json:"os"`
 	MAC      string `json:"mac"`
@@ -60,7 +63,13 @@ type resultMsg struct {
 }
 
 func NewAgent(cfg *common.AgentConfig, logger *slog.Logger) (*Agent, error) {
-	id, err := loadOrGenerateUUID(cfg.UUIDFile)
+	if strings.TrimSpace(cfg.Token) == "" || len(strings.TrimSpace(cfg.Token)) < 32 {
+		return nil, fmt.Errorf("agent token is required; issue one from the Master settings page")
+	}
+	if cfg.MasterScheme != "" && cfg.MasterScheme != "ws" && cfg.MasterScheme != "wss" {
+		return nil, fmt.Errorf("master_scheme must be ws or wss")
+	}
+	id, err := loadOrGenerateUUID(cfg.UUIDFile, cfg.UUID)
 	if err != nil {
 		return nil, err
 	}
@@ -76,16 +85,35 @@ func NewAgent(cfg *common.AgentConfig, logger *slog.Logger) (*Agent, error) {
 	}, nil
 }
 
-func loadOrGenerateUUID(filePath string) (uuid.UUID, error) {
+func loadOrGenerateUUID(filePath, configuredUUID string) (uuid.UUID, error) {
+	if configuredUUID = strings.TrimSpace(configuredUUID); configuredUUID != "" {
+		id, err := uuid.Parse(configuredUUID)
+		if err != nil || id == uuid.Nil {
+			return uuid.Nil, fmt.Errorf("configured agent UUID is invalid")
+		}
+		return id, nil
+	}
+	if strings.TrimSpace(filePath) == "" {
+		return uuid.Nil, fmt.Errorf("uuid_file or uuid must be configured")
+	}
 	data, err := os.ReadFile(filePath)
 	if err == nil {
-		id, err := uuid.Parse(string(data))
-		if err == nil {
-			return id, nil
+		id, parseErr := uuid.Parse(strings.TrimSpace(string(data)))
+		if parseErr != nil || id == uuid.Nil {
+			return uuid.Nil, fmt.Errorf("existing UUID file %q is invalid", filePath)
 		}
+		return id, nil
+	}
+	if !os.IsNotExist(err) {
+		return uuid.Nil, fmt.Errorf("read UUID file: %w", err)
 	}
 	id := uuid.New()
-	if err := os.WriteFile(filePath, []byte(id.String()), 0644); err != nil {
+	if dir := filepath.Dir(filePath); dir != "." && dir != "" {
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			return uuid.Nil, err
+		}
+	}
+	if err := os.WriteFile(filePath, []byte(id.String()), 0600); err != nil {
 		return uuid.Nil, err
 	}
 	return id, nil
@@ -124,9 +152,16 @@ func (a *Agent) Run(ctx context.Context) error {
 }
 
 func (a *Agent) connect(ctx context.Context) error {
+	scheme := a.config.MasterScheme
+	if scheme == "" {
+		scheme = "ws"
+	}
+	if a.config.MasterPort < 1 || a.config.MasterPort > 65535 || strings.TrimSpace(a.config.MasterHost) == "" {
+		return fmt.Errorf("master_host and a valid master_port are required")
+	}
 	u := url.URL{
-		Scheme: "ws",
-		Host:   fmt.Sprintf("%s:%d", a.config.MasterHost, a.config.MasterPort),
+		Scheme: scheme,
+		Host:   net.JoinHostPort(strings.Trim(a.config.MasterHost, "[]"), strconv.Itoa(a.config.MasterPort)),
 		Path:   "/ws",
 	}
 	conn, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
@@ -138,6 +173,7 @@ func (a *Agent) connect(ctx context.Context) error {
 	msg := handshakeMsg{
 		Type:     "handshake",
 		UUID:     a.uuid.String(),
+		Token:    a.config.Token,
 		Hostname: a.hostname,
 		OS:       a.os,
 		MAC:      a.mac,
@@ -215,14 +251,21 @@ func (a *Agent) readLoop(ctx context.Context) error {
 				a.conn.WriteJSON(res)
 				continue
 			}
-			defer os.RemoveAll(tmpDir)
 
 			var localFiles []string
 			downloadFailed := false
 			for _, fid := range fileIDs {
-				httpPort := 8080
-				url := fmt.Sprintf("http://%s:%d/api/v1/files/%s", a.config.MasterHost, httpPort, fid)
-				localPath, err := a.downloadFile(url, tmpDir)
+				httpPort := a.config.MasterHTTPPort
+				if httpPort == 0 {
+					httpPort = 8080
+				}
+				httpScheme := "http"
+				if a.config.MasterScheme == "wss" {
+					httpScheme = "https"
+				}
+				host := net.JoinHostPort(strings.Trim(a.config.MasterHost, "[]"), strconv.Itoa(httpPort))
+				targetURL := fmt.Sprintf("%s://%s/api/v1/agent/files/%s", httpScheme, host, fid)
+				localPath, err := a.downloadFile(targetURL, tmpDir)
 				if err != nil {
 					a.logger.Error("Failed to download file", "file_id", fid, "error", err)
 					downloadFailed = true
@@ -232,6 +275,7 @@ func (a *Agent) readLoop(ctx context.Context) error {
 			}
 
 			if downloadFailed {
+				_ = os.RemoveAll(tmpDir)
 				res := resultMsg{
 					Type:   "result",
 					JobID:  cmd.JobID,
@@ -264,6 +308,7 @@ func (a *Agent) readLoop(ctx context.Context) error {
 			if err := a.conn.WriteJSON(res); err != nil {
 				a.logger.Error("Failed to send result", "error", err)
 			}
+			_ = os.RemoveAll(tmpDir)
 
 		case "stats":
 			stats := a.collectStats()
@@ -291,54 +336,66 @@ func (a *Agent) readLoop(ctx context.Context) error {
 }
 
 // downloadFile – скачивает файл с мастера
-func (a *Agent) downloadFile(url, destDir string) (string, error) {
-    // Создаём клиент с таймаутом (исправление №2)
-    client := &http.Client{Timeout: 30 * time.Second}
-    resp, err := client.Get(url)
-    if err != nil {
-        return "", err
-    }
-    defer resp.Body.Close()
+func (a *Agent) downloadFile(targetURL, destDir string) (string, error) {
+	client := &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	req, err := http.NewRequest(http.MethodGet, targetURL, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+a.config.Token)
+	req.Header.Set("X-Agent-ID", a.uuid.String())
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("download failed with status: %s", resp.Status)
+	}
 
-    if resp.StatusCode != http.StatusOK {
-        return "", fmt.Errorf("download failed with status: %s", resp.Status)
-    }
-
-    filename := ""
-    contentDisp := resp.Header.Get("Content-Disposition")
-    if contentDisp != "" {
-        // Парсим: attachment; filename="file.exe"
-        parts := strings.Split(contentDisp, "filename=")
-        if len(parts) > 1 {
-            filename = strings.Trim(parts[1], "\"")
-        }
-    }
-    if filename == "" {
-        // fallback – последний сегмент URL
-        parts := strings.Split(url, "/")
-        filename = parts[len(parts)-1]
-    }
-
-    // Безопасное имя файла – только базовое имя, удаляем возможные пути
-    safeFilename := filepath.Base(filename)
-    fullPath := filepath.Join(destDir, safeFilename)
-
-    // Дополнительная проверка: убедимся, что путь внутри destDir
-    if !strings.HasPrefix(filepath.Clean(fullPath), filepath.Clean(destDir)+string(os.PathSeparator)) {
-        return "", fmt.Errorf("invalid file path: %s", fullPath)
-    }
-
-    out, err := os.Create(fullPath)
-    if err != nil {
-        return "", err
-    }
-    defer out.Close()
-
-    _, err = io.Copy(out, resp.Body)
-    if err != nil {
-        return "", err
-    }
-    return fullPath, nil
+	filename := ""
+	if contentDisp := resp.Header.Get("Content-Disposition"); contentDisp != "" {
+		_, params, parseErr := mime.ParseMediaType(contentDisp)
+		if parseErr == nil {
+			filename = params["filename"]
+		}
+	}
+	if filename == "" {
+		parsedURL, parseErr := url.Parse(targetURL)
+		if parseErr != nil {
+			return "", parseErr
+		}
+		filename = filepath.Base(parsedURL.Path)
+	}
+	// Strip both Unix and Windows path components before touching the filesystem.
+	filename = filepath.Base(strings.ReplaceAll(filename, "\\", "/"))
+	if filename == "" || filename == "." || filename == string(filepath.Separator) {
+		return "", fmt.Errorf("invalid downloaded filename")
+	}
+	fullPath := filepath.Join(destDir, filename)
+	if !strings.HasPrefix(filepath.Clean(fullPath), filepath.Clean(destDir)+string(os.PathSeparator)) {
+		return "", fmt.Errorf("invalid download path")
+	}
+	out, err := os.OpenFile(fullPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		return "", err
+	}
+	const maxDownloadSize = 100 << 20
+	written, copyErr := io.Copy(out, io.LimitReader(resp.Body, maxDownloadSize+1))
+	closeErr := out.Close()
+	if copyErr != nil || closeErr != nil || written > maxDownloadSize {
+		_ = os.Remove(fullPath)
+		if copyErr != nil {
+			return "", copyErr
+		}
+		if closeErr != nil {
+			return "", closeErr
+		}
+		return "", fmt.Errorf("download exceeds 100 MiB limit")
+	}
+	return fullPath, nil
 }
 
 // collectDevices – сбор информации об устройствах
