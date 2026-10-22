@@ -1,12 +1,20 @@
-FROM golang:1.21 AS builder
-WORKDIR /app
+FROM golang:1.26.4 AS builder
+WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN go build -o bin/master cmd/master/main.go
-RUN go build -o bin/agent cmd/agent/main.go
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /out/master ./cmd/master
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /out/agent ./cmd/agent
 
-FROM debian:bullseye-slim
+FROM debian:bookworm-slim
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-COPY --from=builder /app/bin ./bin
+COPY --from=builder /out/master ./bin/master
+COPY --from=builder /out/agent ./bin/agent
+COPY configs/master.yaml.example ./configs/master.yaml
+COPY configs/agent.yaml.example ./configs/agent.yaml
+RUN mkdir -p /app/uploads && chmod 700 /app/uploads
+EXPOSE 8080 8081
 CMD ["./bin/master"]

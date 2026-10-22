@@ -53,7 +53,9 @@ func (i *Installer) installOne(file string, mode string) (string, error) {
 		return "", fmt.Errorf("file not found: %w", err)
 	}
 
+	lowerPath := strings.ToLower(file)
 	ext := strings.ToLower(filepath.Ext(file))
+	isTarArchive := strings.HasSuffix(lowerPath, ".tar") || strings.HasSuffix(lowerPath, ".tar.gz") || strings.HasSuffix(lowerPath, ".tar.bz2") || strings.HasSuffix(lowerPath, ".tgz")
 	switch runtime.GOOS {
 	case "windows":
 		switch ext {
@@ -67,13 +69,14 @@ func (i *Installer) installOne(file string, mode string) (string, error) {
 			return "", fmt.Errorf("unsupported file type on Windows: %s", ext)
 		}
 	case "linux":
+		if isTarArchive {
+			return i.installTar(file, mode)
+		}
 		switch ext {
 		case ".deb":
 			return i.installDeb(file, mode)
 		case ".run":
 			return i.installRun(file, mode)
-		case ".tar", ".tar.gz", ".tar.bz2", ".tgz":
-			return i.installTar(file, mode)
 		default:
 			return "", fmt.Errorf("unsupported file type on Linux: %s", ext)
 		}
@@ -124,10 +127,17 @@ func (i *Installer) installDeb(file string, mode string) (string, error) {
 	cmd := exec.Command("sudo", "dpkg", "-i", file)
 	out, err := runCmd(cmd)
 	if err != nil {
-		i.logger.Warn("dpkg failed, trying apt-get -f install", "error", err)
+		i.logger.Warn("dpkg failed, trying dependency repair", "error", err)
 		cmd2 := exec.Command("sudo", "apt-get", "-f", "install", "-y")
-		out2, err2 := runCmd(cmd2)
-		return out + "\n" + out2, err2
+		out2, repairErr := runCmd(cmd2)
+		if repairErr != nil {
+			return out + "\n" + out2, fmt.Errorf("dpkg installation failed (%v); dependency repair failed: %w", err, repairErr)
+		}
+		// Retry the requested package; a successful dependency repair alone does
+		// not prove that the requested package was installed.
+		cmd3 := exec.Command("sudo", "dpkg", "-i", file)
+		out3, retryErr := runCmd(cmd3)
+		return out + "\n" + out2 + "\n" + out3, retryErr
 	}
 	return out, nil
 }
@@ -146,9 +156,9 @@ func (i *Installer) installTar(file string, mode string) (string, error) {
 
 	var cmd *exec.Cmd
 	switch {
-	case strings.HasSuffix(file, ".tar.gz") || strings.HasSuffix(file, ".tgz"):
+	case strings.HasSuffix(strings.ToLower(file), ".tar.gz") || strings.HasSuffix(strings.ToLower(file), ".tgz"):
 		cmd = exec.Command("tar", "-xzf", file, "-C", tmpDir)
-	case strings.HasSuffix(file, ".tar.bz2"):
+	case strings.HasSuffix(strings.ToLower(file), ".tar.bz2"):
 		cmd = exec.Command("tar", "-xjf", file, "-C", tmpDir)
 	default:
 		cmd = exec.Command("tar", "-xf", file, "-C", tmpDir)
@@ -198,19 +208,19 @@ func runCmd(cmd *exec.Cmd) (string, error) {
 
 // createRestorePoint – создаёт точку восстановления в Windows
 func createRestorePoint() error {
-    if runtime.GOOS != "windows" {
-        return nil
-    }
-    // Проверяем, есть ли права администратора
-    cmd := exec.Command("powershell", "-Command", "Checkpoint-Computer -Description 'LANdapter restore point' -RestorePointType MODIFY_SETTINGS")
-    if err := cmd.Run(); err != nil {
-        // Если функция отключена, это не ошибка – просто предупреждение
-        if strings.Contains(err.Error(), "0x80042302") {
-            return nil // System Restore disabled
-        }
-        return fmt.Errorf("failed to create restore point: %w", err)
-    }
-    return nil
+	if runtime.GOOS != "windows" {
+		return nil
+	}
+	// Проверяем, есть ли права администратора
+	cmd := exec.Command("powershell", "-Command", "Checkpoint-Computer -Description 'LANdapter restore point' -RestorePointType MODIFY_SETTINGS")
+	if err := cmd.Run(); err != nil {
+		// Если функция отключена, это не ошибка – просто предупреждение
+		if strings.Contains(err.Error(), "0x80042302") {
+			return nil // System Restore disabled
+		}
+		return fmt.Errorf("failed to create restore point: %w", err)
+	}
+	return nil
 }
 
 // isAdmin – проверка прав администратора (Windows)

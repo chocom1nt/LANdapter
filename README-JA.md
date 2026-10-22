@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/go-1.21+-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">
+  <img src="https://img.shields.io/badge/go-1.26.4+-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">
   <img src="https://img.shields.io/badge/react-18.2-61DAFB?style=flat&logo=react&logoColor=white" alt="React">
   <img src="https://img.shields.io/badge/platform-windows%20%7C%20linux-lightgrey" alt="Platform">
   <img src="https://img.shields.io/badge/postgresql-15-4169E1?style=flat&logo=postgresql&logoColor=white" alt="PostgreSQL">
@@ -31,7 +31,7 @@
 - **復元ポイント** – Windows でインストール前に自動的に復元ポイントを作成。
 - **Web UI** – ダークテーマの React ダッシュボード、ファイルライブラリ、インストールウィザード。
 - **柔軟な設定** – YAML と環境変数。
-- **クロスプラットフォーム** – マスターとエージェントは Windows / Linux（エージェントは macOS も限定的にサポート）。
+- **クロスプラットフォーム** – Master と Agent は Windows / Linux に対応します。macOS でのインストール実行は現在未対応です。
 
 ---
 
@@ -39,7 +39,7 @@
 
 ### 要件
 
-- Go 1.21+
+- Go 1.26.4+
 - PostgreSQL 15+
 - Node.js 18+（フロントエンド）
 - Make（任意）
@@ -63,19 +63,30 @@ go mod download
 
 ```bash
 cd web
-npm install
+npm ci
 cd ..
+```
+
+マイグレーション前に、PostgreSQL 管理者として専用ユーザーとデータベースを作成します（例: `psql` 内で実行）。
+
+```sql
+CREATE USER landapter WITH PASSWORD 'your-database-password';
+CREATE DATABASE landapter OWNER landapter;
+```
+
+下の `DB_PASSWORD` には同じパスワードを設定してください。既にユーザーや DB が存在する場合は再作成せず、所有者と権限を確認してください。
+
+マイグレーションや Master の起動前に、PostgreSQL のパスワードと 32 文字以上の管理者用シークレットを設定します:
+
+```bash
+export DB_PASSWORD='your-database-password'
+export LANDAPTER_ADMIN_TOKEN="$(openssl rand -hex 32)"
 ```
 
 DB マイグレーション:
 
 ```bash
 make migrate-up
-# または手動:
-psql -h localhost -U postgres -d landapter -f migrations/001_init.up.sql
-psql -h localhost -U postgres -d landapter -f migrations/002_add_mac_up.sql
-psql -h localhost -U postgres -d landapter -f migrations/003_add_devices_up.sql
-psql -h localhost -U postgres -d landapter -f migrations/004_add_snapshots.up.sql
 ```
 
 マスターを起動:
@@ -84,22 +95,22 @@ psql -h localhost -U postgres -d landapter -f migrations/004_add_snapshots.up.sq
 go run cmd/master/main.go
 ```
 
-エージェントを起動（別ターミナル）:
-
-```bash
-go run cmd/agent/main.go
-```
-
-フロントエンドを起動（3 つ目のターミナル）:
+別のターミナルでフロントエンドを起動:
 
 ```bash
 cd web
 npm run dev
 ```
 
-ブラウザで `http://localhost:3000` を開きます。
+`http://localhost:3000` を開き、Settings で `LANDAPTER_ADMIN_TOKEN` を入力して接続を保存し、エージェント用の個別トークンを発行します。トークンは一度だけ表示されます。`agent_id` と `token` を `configs/agent.yaml` の `uuid` と `token` に保存してください。
 
-詳細なデプロイ手順は [docs/INSTALL.md](docs/INSTALL.md) を参照してください。
+認証情報を保存してから、別のターミナルでエージェントを起動します:
+
+```bash
+go run cmd/agent/main.go
+```
+
+詳細なデプロイ手順は [docs/INSTALL-JA.md](docs/INSTALL-JA.md) を参照してください。
 
 ---
 
@@ -131,17 +142,13 @@ npm run build
 
 ```bash
 # マスター
-docker build -f Dockerfile.master -t landapter-master .
+docker build -t landapter-master .
 
 # エージェント
 docker build -f Dockerfile.agent -t landapter-agent .
 ```
 
-または PostgreSQL 付きのフルスタック:
-
-```bash
-docker-compose up -d
-```
+`docker-compose.yml` が起動するのは **PostgreSQL と Master のみ**です。フロントエンドと Agent は自動起動しません。事前に `configs/master.yaml.example` を `configs/master.yaml` にコピーし、`.env` を設定して SQL マイグレーションを適用してください。詳細は [docs/INSTALL-JA.md](docs/INSTALL-JA.md) を参照してください。フロントエンドは別途起動するか、`web/dist/` を Web サーバーで配信します。
 
 ---
 
@@ -163,7 +170,7 @@ LANdapter/
 ├── configs/              # 設定サンプル
 ├── uploads/              # アップロード（自動作成）
 ├── docker-compose.yml
-├── Makefile
+├── makefile
 ├── go.mod
 └── README.md
 ```
@@ -172,14 +179,14 @@ LANdapter/
 
 ## ドキュメント
 
-[docs/](docs/) に詳細があります:
+全ドキュメントの索引は [docs/README.md](docs/README.md) です。目的に応じて次のガイドを参照してください。
 
-- [API リファレンス](docs/README.API-JA.md) – REST / WebSocket（[English](docs/README.API.md) · [Русский](docs/README.API-RU.md) · [中文](docs/README.API-ZH.md) · [Español](docs/README.API-ES.md)）。
-- [インストールガイド](docs/INSTALL.md) – デプロイ手順。
-- [設定](docs/CONFIG.md) – `master.yaml` / `agent.yaml`。
-- [アーキテクチャ](docs/ARCHITECTURE.md) – 設計、ジョブライフサイクル、WebSocket。
-- [本番デプロイ](docs/DEPLOY.md) – サービス、プロキシ、監視。
-- [FAQ](docs/FAQ.md) – よくある質問。
+- [インストール](docs/INSTALL-JA.md)：要件、DB、マイグレーション、Master/UI 起動、Agent 登録。
+- [設定](docs/CONFIG-JA.md)：Master/Agent の設定項目と環境変数。
+- [アーキテクチャ](docs/ARCHITECTURE-JA.md)：構成要素、資格情報、WebSocket、現状の制限。
+- [本番デプロイ](docs/DEPLOY-JA.md)：TLS proxy、サービス保護、バックアップ、更新。
+- [API](docs/README.API-JA.md)：REST エンドポイントと WebSocket プロトコル。
+- [FAQ](docs/FAQ-JA.md) と [コントリビューション](docs/CONTRIBUTING-JA.md)。
 
 ---
 

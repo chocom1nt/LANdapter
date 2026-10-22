@@ -7,7 +7,7 @@
 #   build-frontend - build frontend for production
 #   migrate-up     - apply all database migrations
 #   migrate-down   - rollback all database migrations
-#   migrate-apply  - apply a specific migration (usage: make migrate-apply NAME=004_add_snapshots)
+#   migrate-apply  - apply a specific migration (usage: make migrate-apply NAME=004_add_snapshots or NAME=005_agent_credentials)
 #   test           - run all unit tests
 #   test-unit      - run unit tests only
 #   test-integration - run integration tests (requires database)
@@ -26,13 +26,13 @@ MASTER_BINARY=$(BINARY_DIR)/master
 AGENT_BINARY=$(BINARY_DIR)/agent
 
 # PostgreSQL connection parameters (adjust as needed)
-PG_HOST=localhost
-PG_PORT=5432
-PG_USER=postgres
-PG_PASSWORD=postgres
-PG_DB=landapter
-PG_SSL=disable
-PG_DSN=postgres://$(PG_USER):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/$(PG_DB)?sslmode=$(PG_SSL)
+PG_HOST?=localhost
+PG_PORT?=5432
+PG_USER?=landapter
+PG_PASSWORD?=$(DB_PASSWORD)
+PGPASSWORD?=$(PG_PASSWORD)
+export PGPASSWORD
+PG_DB?=landapter
 
 # Migration directory
 MIGRATIONS_DIR=migrations
@@ -75,20 +75,22 @@ build-frontend:
 .PHONY: migrate-up
 migrate-up:
 	@echo "Applying all migrations..."
-	psql -h $(PG_HOST) -U $(PG_USER) -d $(PG_DB) -f $(MIGRATIONS_DIR)/001_init.up.sql
-	psql -h $(PG_HOST) -U $(PG_USER) -d $(PG_DB) -f $(MIGRATIONS_DIR)/002_add_mac_up.sql
-	psql -h $(PG_HOST) -U $(PG_USER) -d $(PG_DB) -f $(MIGRATIONS_DIR)/003_add_devices_up.sql
-	psql -h $(PG_HOST) -U $(PG_USER) -d $(PG_DB) -f $(MIGRATIONS_DIR)/004_add_snapshots.up.sql
+	psql -h $(PG_HOST) -p $(PG_PORT) -U $(PG_USER) -d $(PG_DB) -f $(MIGRATIONS_DIR)/001_init.up.sql
+	psql -h $(PG_HOST) -p $(PG_PORT) -U $(PG_USER) -d $(PG_DB) -f $(MIGRATIONS_DIR)/002_add_mac.up.sql
+	psql -h $(PG_HOST) -p $(PG_PORT) -U $(PG_USER) -d $(PG_DB) -f $(MIGRATIONS_DIR)/003_add_devices.up.sql
+	psql -h $(PG_HOST) -p $(PG_PORT) -U $(PG_USER) -d $(PG_DB) -f $(MIGRATIONS_DIR)/004_add_snapshots.up.sql
+	psql -h $(PG_HOST) -p $(PG_PORT) -U $(PG_USER) -d $(PG_DB) -f $(MIGRATIONS_DIR)/005_agent_credentials.up.sql
 	@echo "Migrations applied."
 
 # Rollback all migrations (down)
 .PHONY: migrate-down
 migrate-down:
 	@echo "Rolling back all migrations..."
-	psql -h $(PG_HOST) -U $(PG_USER) -d $(PG_DB) -f $(MIGRATIONS_DIR)/004_add_snapshots.down.sql
-	psql -h $(PG_HOST) -U $(PG_USER) -d $(PG_DB) -f $(MIGRATIONS_DIR)/003_add_devices.down.sql
-	psql -h $(PG_HOST) -U $(PG_USER) -d $(PG_DB) -f $(MIGRATIONS_DIR)/002_add_mac_down.sql
-	psql -h $(PG_HOST) -U $(PG_USER) -d $(PG_DB) -f $(MIGRATIONS_DIR)/001_init.down.sql
+	psql -h $(PG_HOST) -p $(PG_PORT) -U $(PG_USER) -d $(PG_DB) -f $(MIGRATIONS_DIR)/005_agent_credentials.down.sql
+	psql -h $(PG_HOST) -p $(PG_PORT) -U $(PG_USER) -d $(PG_DB) -f $(MIGRATIONS_DIR)/004_add_snapshots.down.sql
+	psql -h $(PG_HOST) -p $(PG_PORT) -U $(PG_USER) -d $(PG_DB) -f $(MIGRATIONS_DIR)/003_add_devices.down.sql
+	psql -h $(PG_HOST) -p $(PG_PORT) -U $(PG_USER) -d $(PG_DB) -f $(MIGRATIONS_DIR)/002_add_mac.down.sql
+	psql -h $(PG_HOST) -p $(PG_PORT) -U $(PG_USER) -d $(PG_DB) -f $(MIGRATIONS_DIR)/001_init.down.sql
 	@echo "Migrations rolled back."
 
 # Apply a specific migration (up) by name, e.g.: make migrate-apply NAME=004_add_snapshots
@@ -98,7 +100,7 @@ ifndef NAME
 	@echo "Error: NAME is not set. Usage: make migrate-apply NAME=004_add_snapshots"
 	exit 1
 endif
-	psql -h $(PG_HOST) -U $(PG_USER) -d $(PG_DB) -f $(MIGRATIONS_DIR)/$(NAME).up.sql
+	psql -h $(PG_HOST) -p $(PG_PORT) -U $(PG_USER) -d $(PG_DB) -f $(MIGRATIONS_DIR)/$(NAME).up.sql
 	@echo "Migration $(NAME) applied."
 
 # Run all tests (unit)
@@ -142,13 +144,28 @@ lint:
 	golangci-lint run ./...
 
 # Help
+# Keep this target shell-independent: the help command must also work on Windows
+# installations where GNU grep/awk are not available in the selected shell.
 .PHONY: help
 help:
-	@echo "Available targets:"
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-20s %s\n", $$1, $$2}'
-	@echo ""
-	@echo "Examples:"
-	@echo "  make build          - build master and agent binaries"
-	@echo "  make run-master     - run master server"
-	@echo "  make migrate-up     - apply all database migrations"
-	@echo "  make test           - run all tests"
+	@echo Available targets:
+	@echo   build              Build master and agent binaries
+	@echo   run-master         Run the master server
+	@echo   run-agent          Run the agent client
+	@echo   run-frontend       Start the frontend development server
+	@echo   build-frontend     Build the frontend for production
+	@echo   migrate-up         Apply all database migrations
+	@echo   migrate-down       Roll back all database migrations
+	@echo   migrate-apply      Apply one migration (NAME=005_agent_credentials)
+	@echo   test               Run all Go tests
+	@echo   test-unit          Run unit tests
+	@echo   test-integration   Run integration tests (requires a test database)
+	@echo   test-cover         Run tests and generate a coverage report
+	@echo   install-frontend   Install frontend dependencies
+	@echo   lint               Run golangci-lint
+	@echo   clean              Remove build artifacts
+	@echo   help               Show this help
+	@echo Examples:
+	@echo   make build
+	@echo   make migrate-apply NAME=005_agent_credentials
+	@echo   make test

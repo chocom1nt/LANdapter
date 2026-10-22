@@ -65,7 +65,7 @@ This document describes system components, interactions, the data exchange proto
 ### WebSocket server
 
 - Port: `ws_port` (default 8081), path `/ws`.
-- Handshake: agent sends UUID, hostname, OS, MAC.
+- Handshake: agent sends UUID, per-agent token, hostname, OS, and MAC. The token is verified against a SHA-256 hash stored in PostgreSQL.
 - Master upserts client in DB and marks online.
 - Ping/pong (~54 s interval).
 - Commands: `install`, `stats`, `devices`.
@@ -81,7 +81,7 @@ On `POST /api/v1/install`:
    - Verify client exists.
    - Create `job_result` with `pending`.
    - If online, send `install` over WebSocket and set `running`.
-   - Offline delivery on reconnect is planned.
+   - Jobs for offline agents may remain pending, but automatic redelivery when an agent reconnects is not implemented yet.
 
 On agent result, update `job_result` (status, output, error, snapshots).
 
@@ -138,6 +138,7 @@ Builds commands per type and mode. `.inf` tries `pnputil`, then `dism`. `.tar` e
 {
   "type": "handshake",
   "uuid": "550e8400-e29b-41d4-a716-446655440000",
+  "token": "agent-secret-issued-by-master",
   "hostname": "pc-01",
   "os": "windows",
   "mac": "00:11:22:33:44:55"
@@ -200,17 +201,9 @@ Builds commands per type and mode. `.inf` tries `pnputil`, then `dism`. `.tar` e
 
 ## Security
 
-There is **no authentication** today. Use only on trusted internal networks.
+Administrative REST endpoints require `Authorization: Bearer <LANDAPTER_ADMIN_TOKEN>`. Master refuses to start if this random secret is missing or shorter than 32 characters. Agents use individual credentials issued through `POST /api/v1/agents/enroll`; only token hashes are stored in PostgreSQL. File downloads by agents use `/api/v1/agent/files/{id}` with an agent bearer token and `X-Agent-ID`.
 
-Recommendations:
-
-- Isolate master and DB on a private network.
-- Firewall ports 8080, 8081, 5432.
-- PostgreSQL `sslmode: require` in production.
-- Strong DB passwords.
-- Do not expose ports to the public internet.
-
-JWT/OAuth2 are planned.
+Authentication does not encrypt traffic. Use HTTPS/WSS through a TLS reverse proxy on untrusted networks. Keep ports 8080/8081 private when possible, restrict PostgreSQL 5432 to authorized hosts, use strong independent secrets, and validate installer packages before deployment.
 
 ---
 

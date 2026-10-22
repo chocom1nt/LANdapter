@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/go-1.21+-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">
+  <img src="https://img.shields.io/badge/go-1.26.4+-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">
   <img src="https://img.shields.io/badge/react-18.2-61DAFB?style=flat&logo=react&logoColor=white" alt="React">
   <img src="https://img.shields.io/badge/platform-windows%20%7C%20linux-lightgrey" alt="Platform">
   <img src="https://img.shields.io/badge/postgresql-15-4169E1?style=flat&logo=postgresql&logoColor=white" alt="PostgreSQL">
@@ -31,7 +31,7 @@ El proyecto simplifica la administración de estaciones de trabajo en redes de o
 - **Puntos de restauración** – creación automática de punto de restauración en Windows antes de instalar.
 - **Interfaz web** – panel React con tema oscuro, biblioteca de archivos y asistente de instalación.
 - **Configuración flexible** – archivos YAML y variables de entorno.
-- **Multiplataforma** – maestro y agentes en Windows y Linux (el agente también admite macOS con funcionalidad limitada).
+- **Multiplataforma** – Master y Agent admiten Windows y Linux. La ejecución de instalaciones en macOS todavía no está admitida.
 
 ---
 
@@ -39,7 +39,7 @@ El proyecto simplifica la administración de estaciones de trabajo en redes de o
 
 ### Requisitos
 
-- Go 1.21+
+- Go 1.26.4+
 - PostgreSQL 15+
 - Node.js 18+ (frontend)
 - Make (opcional)
@@ -63,19 +63,30 @@ Dependencias del frontend:
 
 ```bash
 cd web
-npm install
+npm ci
 cd ..
+```
+
+Antes de aplicar las migraciones, crea un usuario y una base de datos dedicados en PostgreSQL como administrador (por ejemplo, desde `psql`):
+
+```sql
+CREATE USER landapter WITH PASSWORD 'your-database-password';
+CREATE DATABASE landapter OWNER landapter;
+```
+
+Usa la misma contraseña en `DB_PASSWORD` abajo. Si el usuario o la base ya existen, no los vuelvas a crear: comprueba el propietario y los permisos.
+
+Antes de aplicar migraciones o iniciar el maestro, configure la contraseña de PostgreSQL y un secreto administrativo independiente de al menos 32 caracteres:
+
+```bash
+export DB_PASSWORD='your-database-password'
+export LANDAPTER_ADMIN_TOKEN="$(openssl rand -hex 32)"
 ```
 
 Aplicar migraciones:
 
 ```bash
 make migrate-up
-# o manualmente:
-psql -h localhost -U postgres -d landapter -f migrations/001_init.up.sql
-psql -h localhost -U postgres -d landapter -f migrations/002_add_mac_up.sql
-psql -h localhost -U postgres -d landapter -f migrations/003_add_devices_up.sql
-psql -h localhost -U postgres -d landapter -f migrations/004_add_snapshots.up.sql
 ```
 
 Iniciar el maestro:
@@ -84,22 +95,22 @@ Iniciar el maestro:
 go run cmd/master/main.go
 ```
 
-Iniciar un agente (otra terminal):
-
-```bash
-go run cmd/agent/main.go
-```
-
-Iniciar el frontend (tercera terminal):
+Iniciar el frontend (en otra terminal):
 
 ```bash
 cd web
 npm run dev
 ```
 
-Abrir `http://localhost:3000` en el navegador.
+Abre `http://localhost:3000`, entra en Settings, introduce `LANDAPTER_ADMIN_TOKEN`, guarda la conexión y emite un token individual para el agente. El token se muestra una sola vez: copia `agent_id` y `token` a `configs/agent.yaml` como `uuid` y `token`.
 
-Instrucciones detalladas en [docs/INSTALL.md](docs/INSTALL.md).
+Después de guardar esas credenciales, inicia el agente en otra terminal:
+
+```bash
+go run cmd/agent/main.go
+```
+
+Instrucciones detalladas en [docs/INSTALL-ES.md](docs/INSTALL-ES.md).
 
 ---
 
@@ -131,17 +142,13 @@ Los estáticos quedan en `web/dist/`.
 
 ```bash
 # Maestro
-docker build -f Dockerfile.master -t landapter-master .
+docker build -t landapter-master .
 
 # Agente
 docker build -f Dockerfile.agent -t landapter-agent .
 ```
 
-O el stack completo con `docker-compose` (incluye PostgreSQL):
-
-```bash
-docker-compose up -d
-```
+`docker-compose.yml` inicia **solo PostgreSQL y Master**; no inicia el frontend ni agentes. Antes, copia `configs/master.yaml.example` a `configs/master.yaml`, configura `.env` y aplica las migraciones SQL. Consulta [docs/INSTALL-ES.md](docs/INSTALL-ES.md). Ejecuta el frontend por separado o publica `web/dist/` con un servidor web.
 
 ---
 
@@ -163,7 +170,7 @@ LANdapter/
 ├── configs/              # Ejemplos de configuración
 ├── uploads/              # Subidas (se crea automáticamente)
 ├── docker-compose.yml
-├── Makefile
+├── makefile
 ├── go.mod
 └── README.md
 ```
@@ -172,14 +179,14 @@ LANdapter/
 
 ## Documentación
 
-Documentación completa en [docs/](docs/):
+El índice completo está en [docs/README.md](docs/README.md). Empieza por la guía correspondiente a tu tarea:
 
-- [Referencia API](docs/README.API-ES.md) – endpoints REST y WebSocket ([English](docs/README.API.md) · [Русский](docs/README.API-RU.md) · [中文](docs/README.API-ZH.md) · [日本語](docs/README.API-JA.md)).
-- [Guía de instalación](docs/INSTALL.md) – despliegue detallado.
-- [Configuración](docs/CONFIG.md) – parámetros de `master.yaml` y `agent.yaml`.
-- [Arquitectura](docs/ARCHITECTURE.md) – diseño, ciclo de vida de trabajos, WebSocket.
-- [Despliegue en producción](docs/DEPLOY.md) – servicios, proxy, monitorización.
-- [FAQ](docs/FAQ.md) – preguntas frecuentes.
+- [Instalación](docs/INSTALL-ES.md): requisitos, base de datos, migraciones, Master/UI y registro de Agents.
+- [Configuración](docs/CONFIG-ES.md): parámetros de Master y Agent y variables de entorno.
+- [Arquitectura](docs/ARCHITECTURE-ES.md): componentes, credenciales, WebSocket y límites actuales.
+- [Despliegue en producción](docs/DEPLOY-ES.md): proxy TLS, endurecimiento, copias de seguridad y actualizaciones.
+- [API](docs/README.API-ES.md): rutas REST y protocolo WebSocket.
+- [FAQ](docs/FAQ-ES.md) y [contribución](docs/CONTRIBUTING-ES.md).
 
 ---
 

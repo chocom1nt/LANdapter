@@ -15,7 +15,7 @@ A client–server system for centralized driver and software deployment on many 
 ### Supported operating systems?
 
 - **Master:** Windows, Linux (Linux recommended).
-- **Agents:** Windows, Linux. macOS is limited/untested.
+- **Agents:** Windows and Linux installation handlers are implemented. macOS installation execution is not currently supported.
 
 ### Is there a web UI?
 
@@ -23,7 +23,7 @@ Yes – a React dashboard for clients, file uploads, jobs, and results.
 
 ### Authentication?
 
-Not in the current release. Designed for trusted private networks. Use VPN or a reverse proxy with auth if needed.
+Administrative REST endpoints require `Authorization: Bearer <LANDAPTER_ADMIN_TOKEN>` (a random secret of at least 32 characters). Agents use individual tokens issued in Settings. Authentication does not encrypt traffic: use TLS/WSS and network restrictions outside a trusted local network.
 
 ---
 
@@ -101,9 +101,9 @@ Normal if the master is unreachable. Check master load, port 8081, and network s
 
 ### Agent cannot download files
 
-- Master serves `GET /api/v1/files/{id}`.
+- Agent downloads from `GET /api/v1/agent/files/{id}` with its bearer token and `X-Agent-ID` header.
 - File exists under `uploads/`.
-- Agent reaches master HTTP port (default 8080; verify config/code).
+- Agent can reach the HTTP(S) endpoint configured by `master_http_port` (default 8080), in addition to the WebSocket port.
 
 ### `.inf` install fails
 
@@ -151,11 +151,11 @@ Stop service → deploy binaries → run migrations → start service.
 
 ### Cloud deployment?
 
-Possible if agents reach the master (VPN/SSH tunnel strongly recommended – no built-in auth).
+Possible only with careful hardening. Use TLS/WSS, strong secrets, a firewall or VPN, and never expose PostgreSQL. Authentication is implemented for the admin API and Agent credentials, but LANdapter is still an evolving project.
 
 ### Roadmap?
 
-Authentication, group policies, scheduling, more package formats, better driver parsing from vendor sites.
+Group policies, Master CLI, scheduling, more package formats, and better driver parsing from vendor sites.
 
 ---
 

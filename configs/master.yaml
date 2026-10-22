@@ -4,7 +4,7 @@ ws_port: 8081
 db:
   host: "localhost"
   port: 5432
-  user: "postgres"
-  password: "postgres"
+  user: "landapter"
+  password: ""
   dbname: "landapter"
   sslmode: "disable"

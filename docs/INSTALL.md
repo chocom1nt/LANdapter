@@ -8,7 +8,7 @@ This guide covers installing and running LANdapter in a development or test envi
 
 ## Requirements
 
-- **Go** 1.21 or newer – backend build
+- **Go** 1.26.4 or newer – backend build
 - **PostgreSQL** 15 or newer – data storage
 - **Node.js** 18+ and **npm** – React frontend
 - **Git** – clone the repository
@@ -32,7 +32,7 @@ cd LANdapter
 Create a PostgreSQL user and database for LANdapter:
 
 ```sql
-CREATE USER landapter WITH PASSWORD 'your_password';
+CREATE USER landapter WITH PASSWORD 'your-database-password';
 CREATE DATABASE landapter OWNER landapter;
 ```
 
@@ -59,7 +59,7 @@ db:
   host: "localhost"
   port: 5432
   user: "landapter"
-  password: "your_password"
+  password: "" # set DB_PASSWORD in the environment
   dbname: "landapter"
   sslmode: "disable"
 ```
@@ -69,6 +69,10 @@ db:
 ```yaml
 master_host: "localhost"
 master_port: 8081
+master_http_port: 8080
+master_scheme: "ws" # use wss behind a TLS reverse proxy
+uuid: "" # filled from the credential issued by Master Settings
+token: "" # per-agent secret; keep this file private
 uuid_file: "./agent.uuid"
 installer_args:
   ".exe": "/S"
@@ -82,18 +86,13 @@ If the master runs on another host, set its IP instead of `localhost`.
 
 SQL scripts in `migrations/` create the schema. Apply them in order:
 
-### Using psql
+### Apply schema and configure secrets
+
+Set a database password and a separate administrative token of at least 32 characters, then apply all migrations, including the per-agent credential column:
 
 ```bash
-psql -h localhost -U landapter -d landapter -f migrations/001_init.up.sql
-psql -h localhost -U landapter -d landapter -f migrations/002_add_mac_up.sql
-psql -h localhost -U landapter -d landapter -f migrations/003_add_devices_up.sql
-psql -h localhost -U landapter -d landapter -f migrations/004_add_snapshots.up.sql
-```
-
-### Using Make
-
-```bash
+export DB_PASSWORD='your-database-password'
+export LANDAPTER_ADMIN_TOKEN="$(openssl rand -hex 32)"
 make migrate-up
 ```
 
@@ -142,21 +141,7 @@ The master serves HTTP (default port 8080) and WebSocket (8081).
 
 ---
 
-## 8. Start an agent
-
-In another terminal (or on another machine):
-
-```bash
-./bin/agent
-# or
-go run cmd/agent/main.go
-```
-
-The agent connects to the master and waits for commands.
-
----
-
-## 9. Frontend
+## 8. Frontend
 
 Install dependencies in `web/`:
 
@@ -171,7 +156,7 @@ Development server:
 npm run dev
 ```
 
-Open `http://localhost:3000`. The dev server proxies `/api` to `http://localhost:8080`.
+Open `http://localhost:3000`, go to Settings, enter `LANDAPTER_ADMIN_TOKEN`, save the connection, and issue a per-agent token. The dev server proxies `/api` to `http://localhost:8080`; configure the agent credentials before starting it.
 
 Production build:
 
@@ -183,21 +168,39 @@ Static files are in `web/dist/` and can be served by Nginx, Caddy, etc.
 
 ---
 
-## 10. Docker Compose
+## 9. Start an agent
 
-Quick full stack (PostgreSQL + master + one agent):
+In Master Settings, issue a per-agent token first and copy its `agent_id` and `token` into `configs/agent.yaml` as `uuid` and `token`. Then, in another terminal (or on another machine):
 
 ```bash
-docker-compose up -d
+./bin/agent
+# or
+go run cmd/agent/main.go
 ```
 
-This starts:
+The agent connects to the master and waits for commands.
 
-- PostgreSQL on port 5432
-- Master on 8080 (HTTP) and 8081 (WebSocket)
-- One agent connected to the master
+---
 
-Run the frontend separately (step 9) or serve `web/dist/` via Nginx.
+## 10. Docker Compose
+
+Quick start for PostgreSQL + Master (agents are started separately):
+
+```bash
+cp .env.example .env
+# Edit .env: set different random POSTGRES_PASSWORD and LANDAPTER_ADMIN_TOKEN values
+docker-compose up -d postgres
+set -a
+. ./.env
+set +a
+export DB_PASSWORD="$POSTGRES_PASSWORD"
+make migrate-up
+docker-compose up -d master
+```
+
+This starts PostgreSQL and Master. Published ports are bound to `127.0.0.1` by default; keep them private and use a TLS reverse proxy for remote agents. Issue a per-agent token in Master Settings, save `uuid` and `token` in `configs/agent.yaml`, and start each agent separately.
+
+Run the frontend separately (step 8) or serve `web/dist/` via Nginx.
 
 ---
 
@@ -206,7 +209,8 @@ Run the frontend separately (step 9) or serve `web/dist/` via Nginx.
 ### Master API
 
 ```bash
-curl http://localhost:8080/api/v1/clients
+curl -H "Authorization: Bearer $LANDAPTER_ADMIN_TOKEN" \
+  http://localhost:8080/api/v1/clients
 ```
 
 Expect `[]` or a list of clients.

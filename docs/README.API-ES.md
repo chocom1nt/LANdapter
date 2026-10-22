@@ -6,7 +6,7 @@
 
 LANdapter ofrece una API HTTP RESTful para gestionar clientes y distribuir instalaciones de software, además de un endpoint WebSocket para la comunicación en tiempo real con los agentes. Todos los endpoints HTTP se sirven en el puerto configurado en `master.yaml` (predeterminado `8080`). WebSocket usa un puerto separado (predeterminado `8081`).
 
-> **Autenticación**: la versión actual no implementa autenticación. Está pensada para redes internas de confianza. No exponga la API a Internet sin medidas de seguridad adicionales.
+> **Autenticación.** Todos los endpoints REST administrativos requieren `Authorization: Bearer $LANDAPTER_ADMIN_TOKEN`. Configura esta variable en el proceso Master con un secreto aleatorio de al menos 32 caracteres. Cada Agent usa un token individual emitido desde Settings; PostgreSQL almacena solo su hash SHA-256. Para descargar archivos, Agent usa `/api/v1/agent/files/{id}` con `Authorization: Bearer <agent-token>` y `X-Agent-ID: <uuid>`. En redes no confiables, utiliza HTTPS/WSS mediante un proxy TLS.
 
 ---
 
@@ -19,7 +19,25 @@ LANdapter ofrece una API HTTP RESTful para gestionar clientes y distribuir insta
 
 ## Endpoints HTTP de la API
 
-Todos los endpoints devuelven JSON. Los errores incluyen el código HTTP correspondiente y un mensaje de texto plano.
+La mayoría de los endpoints de gestión devuelve JSON. Las descargas devuelven contenido binario con `Content-Disposition`; los errores usan un código HTTP y un mensaje de texto plano.
+
+---
+
+### `POST /api/v1/agents/enroll`
+
+Emite credenciales individuales para un Agent (requiere bearer token administrativo). Envía `{}` para crear un ID nuevo o `{"agent_id":"<existing-uuid>"}` para rotar el token de un ID existente. El token en texto claro se devuelve una sola vez; PostgreSQL solo guarda su hash SHA-256. La rotación invalida el token anterior y cierra la conexión activa.
+
+**Respuesta** – `200 OK`
+
+```json
+{
+  "agent_id": "550e8400-e29b-41d4-a716-446655440000",
+  "token": "one-time-secret",
+  "agent_config": {"uuid": "550e8400-e29b-41d4-a716-446655440000", "token": "one-time-secret"}
+}
+```
+
+Guarda los valores en `configs/agent.yaml` privado, como `uuid` y `token`.
 
 ---
 
@@ -136,6 +154,19 @@ Lista los archivos subidos con sus metadatos.
 **Errores**
 
 - `500 Internal Server Error` – no se puede leer el directorio de subidas.
+
+---
+
+### `GET /api/v1/files/{id}` y `GET /api/v1/agent/files/{id}`
+
+Descarga un archivo subido como contenido binario. La ruta administrativa `/api/v1/files/{id}` requiere el bearer token de administrador. Los Agents deben usar `/api/v1/agent/files/{id}` con ambos encabezados:
+
+```http
+Authorization: Bearer <agent-token>
+X-Agent-ID: <agent-uuid>
+```
+
+La respuesta es un adjunto (`Content-Disposition`). `400` indica un ID no válido; `404`, que no existe el archivo; `401`, que las credenciales del Agent faltan o no son válidas.
 
 ---
 
@@ -281,6 +312,7 @@ Tras conectar, el agente debe enviar un mensaje JSON de handshake:
 {
   "type": "handshake",
   "uuid": "agent-uuid",
+  "token": "agent-secret-issued-by-master",
   "hostname": "my-pc",
   "os": "windows",
   "mac": "00:11:22:33:44:55"
