@@ -1,34 +1,48 @@
 # LANdapter documentation
 
-LANdapter documentation is available in English, Russian, Chinese (简体中文), Japanese, and Spanish. Choose a starting point below.
+Choose one of the five documentation languages. English is the reference language; localized guides cover the same current capabilities and clearly call out features that are not implemented.
 
-## Documentation by language
+## Language guides
 
-| Guide | English | Русский | 中文 | 日本語 | Español |
+| Guide | English | Русский | 日本語 | 简体中文 | Español |
 |---|---|---|---|---|---|
-| Main project overview | [README](../README.md) | [README](../README-RU.md) | [README](../README-ZH.md) | [README](../README-JA.md) | [README](../README-ES.md) |
-| Installation and first run | [INSTALL](INSTALL.md) | [INSTALL](INSTALL-RU.md) | [INSTALL](INSTALL-ZH.md) | [INSTALL](INSTALL-JA.md) | [INSTALL](INSTALL-ES.md) |
-| Configuration | [CONFIG](CONFIG.md) | [CONFIG](CONFIG-RU.md) | [CONFIG](CONFIG-ZH.md) | [CONFIG](CONFIG-JA.md) | [CONFIG](CONFIG-ES.md) |
-| Architecture and protocol | [ARCHITECTURE](ARCHITECTURE.md) | [ARCHITECTURE](ARCHITECTURE-RU.md) | [ARCHITECTURE](ARCHITECTURE-ZH.md) | [ARCHITECTURE](ARCHITECTURE-JA.md) | [ARCHITECTURE](ARCHITECTURE-ES.md) |
-| Production deployment | [DEPLOY](DEPLOY.md) | [DEPLOY](DEPLOY-RU.md) | [DEPLOY](DEPLOY-ZH.md) | [DEPLOY](DEPLOY-JA.md) | [DEPLOY](DEPLOY-ES.md) |
-| REST and WebSocket API | [API](README.API.md) | [API](README.API-RU.md) | [API](README.API-ZH.md) | [API](README.API-JA.md) | [API](README.API-ES.md) |
-| FAQ and troubleshooting | [FAQ](FAQ.md) | [FAQ](FAQ-RU.md) | [FAQ](FAQ-ZH.md) | [FAQ](FAQ-JA.md) | [FAQ](FAQ-ES.md) |
-| Contributing | [CONTRIBUTING](CONTRIBUTING.md) | [CONTRIBUTING](CONTRIBUTING-RU.md) | [CONTRIBUTING](CONTRIBUTING-ZH.md) | [CONTRIBUTING](CONTRIBUTING-JA.md) | [CONTRIBUTING](CONTRIBUTING-ES.md) |
+| Project overview | [README](../README.md) | [README](ru/README.md) | [README](ja/README.md) | [README](zh/README.md) | [README](es/README.md) |
+| Installation | [INSTALL](en/INSTALL.md) | [INSTALL](ru/INSTALL.md) | [INSTALL](ja/INSTALL.md) | [INSTALL](zh/INSTALL.md) | [INSTALL](es/INSTALL.md) |
+| Configuration | [CONFIG](en/CONFIG.md) | [CONFIG](ru/CONFIG.md) | [CONFIG](ja/CONFIG.md) | [CONFIG](zh/CONFIG.md) | [CONFIG](es/CONFIG.md) |
+| Architecture | [ARCHITECTURE](en/ARCHITECTURE.md) | [ARCHITECTURE](ru/ARCHITECTURE.md) | [ARCHITECTURE](ja/ARCHITECTURE.md) | [ARCHITECTURE](zh/ARCHITECTURE.md) | [ARCHITECTURE](es/ARCHITECTURE.md) |
+| Production deployment | [DEPLOY](en/DEPLOY.md) | [DEPLOY](ru/DEPLOY.md) | [DEPLOY](ja/DEPLOY.md) | [DEPLOY](zh/DEPLOY.md) | [DEPLOY](es/DEPLOY.md) |
+| REST / WebSocket API | [API](en/README.API.md) | [API](ru/README.API.md) | [API](ja/README.API.md) | [API](zh/README.API.md) | [API](es/README.API.md) |
+| FAQ | [FAQ](en/FAQ.md) | [FAQ](ru/FAQ.md) | [FAQ](ja/FAQ.md) | [FAQ](zh/FAQ.md) | [FAQ](es/FAQ.md) |
+| Contributing | [CONTRIBUTING](en/CONTRIBUTING.md) | [CONTRIBUTING](ru/CONTRIBUTING.md) | [CONTRIBUTING](ja/CONTRIBUTING.md) | [CONTRIBUTING](zh/CONTRIBUTING.md) | [CONTRIBUTING](es/CONTRIBUTING.md) |
+| Agent lifecycle / unattended operation | [Guide](en/AGENT-LIFECYCLE.md) | [Руководство](ru/AGENT-LIFECYCLE.md) | [ガイド](ja/AGENT-LIFECYCLE.md) | [指南](zh/AGENT-LIFECYCLE.md) | [Guía](es/AGENT-LIFECYCLE.md) |
+| Terminal UI | [TUI](en/TUI.md) | [TUI](ru/TUI.md) | [TUI](ja/TUI.md) | [TUI](zh/TUI.md) | [TUI](es/TUI.md) |
+| Devices / policies / scheduler | [Guide](en/DEVICES-POLICIES-SCHEDULES.md) | [Руководство](ru/DEVICES-POLICIES-SCHEDULES.md) | [ガイド](ja/DEVICES-POLICIES-SCHEDULES.md) | [指南](zh/DEVICES-POLICIES-SCHEDULES.md) | [Guía](es/DEVICES-POLICIES-SCHEDULES.md) |
+| Testing | [TESTING](en/TESTING.md) | [TESTING](ru/TESTING.md) | [TESTING](ja/TESTING.md) | [TESTING](zh/TESTING.md) | [TESTING](es/TESTING.md) |
+| Release readiness | [Checklist](en/RELEASE-CHECKLIST.md) | [Чек-лист](ru/RELEASE-CHECKLIST.md) | [チェックリスト](ja/RELEASE-CHECKLIST.md) | [检查清单](zh/RELEASE-CHECKLIST.md) | [Lista](es/RELEASE-CHECKLIST.md) |
 
-## Recommended reading order
+## Recommended first run
 
-1. Read the project README for the high-level concept and requirements.
-2. Follow the installation guide to prepare PostgreSQL, configure secrets, apply migrations, and start Master.
-3. Configure and start the web UI, then issue an individual credential for each Agent. Copy the token when it is issued: it is shown only once.
-4. Read the API and architecture guides before integrating tools or changing the protocol.
-5. Use the production deployment checklist before exposing the service to a network beyond a trusted local environment.
+1. Run `make quickstart` from the repository root. It creates or repairs `.env`, creates missing local configs, installs frontend dependencies and starts PostgreSQL + Master. On Windows, use a supported GNU Make environment or run the setup steps from PowerShell as documented in the localized installation guide.
+2. In another terminal, run `make run-frontend` and open `http://localhost:3000`.
+3. Run `make copy-token` and paste the admin token into **Settings**. The web UI stores it for the current browser session; `lndp` reads it from `.env`.
+4. Issue one separate Agent credential per workstation in Settings and save the matching `agent_id` / `token` pair in that Agent's private configuration. Do not mix credentials between agents.
 
-## Important operational notes
+Do not use `docker compose down -v` unless you intend to delete the database volume. PostgreSQL init scripts run only for a new empty volume; existing databases require explicit migrations.
 
-- Current backend requirement: Go 1.26.4 or newer; PostgreSQL 15 or newer; Node.js 18+ for the frontend.
-- Administrative REST calls require `Authorization: Bearer <LANDAPTER_ADMIN_TOKEN>`. The value is configured in the Master process environment and must be a random secret of at least 32 characters.
-- Agents use individual tokens; PostgreSQL stores their SHA-256 hashes, not their original token strings.
-- Authentication does not encrypt traffic. Use HTTPS/WSS through a TLS reverse proxy on untrusted networks.
-- Docker Compose starts PostgreSQL and Master only. It does not start the frontend or separate Agent processes. Apply SQL migrations before relying on Master.
-- Offline installation jobs may remain `pending`, but automatic redelivery on Agent reconnect is not yet implemented.
-- Review the supported file types and OS notes in the installation and FAQ guides before deploying packages.
+## Operational and security notes
+
+- Backend: Go 1.26.4 or newer; database: PostgreSQL 15 or newer; frontend: Node.js 18+.
+- Admin REST calls use `Authorization: Bearer <LANDAPTER_ADMIN_TOKEN>`. Agent credentials are separate; PostgreSQL stores only SHA-256 hashes of Agent tokens.
+- The Agent currently runs as a foreground process unless an external service manager is configured. Native Windows Service/systemd installers are not yet included.
+- The Agent reconnects automatically, but current metrics and device inventory are requested on demand; continuous telemetry and proactive administrator alerts are not implemented.
+- Admin-issued per-agent credentials are a security boundary. Do not allow unrestricted self-registration. A future bootstrap flow should use short-lived, single-use enrollment secrets and an approval policy.
+- HTTP/WebSocket traffic is not encrypted by default. Use HTTPS/WSS and firewall rules outside trusted isolated networks.
+- TUI installation/deletion actions affect real clients and uploads; verify targets before dispatch.
+
+## Testing
+
+- [English testing guide](en/TESTING.md)
+- [Руководство по тестированию](ru/TESTING.md)
+- [テストガイド](ja/TESTING.md)
+- [测试指南](zh/TESTING.md)
+- [Guía de pruebas](es/TESTING.md)
