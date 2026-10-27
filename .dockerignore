@@ -1,0 +1,15 @@
+# Do not send development dependencies, generated files or local secrets to Docker.
+.git
+**/node_modules
+**/dist
+web/.vite
+bin/*
+uploads/*
+*.uuid
+*.log
+.env*
+configs/master.yaml
+configs/agent.yaml
+configs/*.local.yaml
+configs/*.secret.yaml
+message.txt
