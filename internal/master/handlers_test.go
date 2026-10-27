@@ -17,20 +17,25 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-func TestHandleClients(t *testing.T) {
+func TestHandleClientsUsesActiveWebSocketForOnlineStatus(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 	sqlxDB := sqlx.NewDb(db, "postgres")
-	store := storage.NewPostgresStorageWithDB(sqlxDB) 
+	store := storage.NewPostgresStorageWithDB(sqlxDB)
 	logger := common.InitLogger(slog.LevelInfo)
 	srv := NewServer(&common.MasterConfig{}, logger, store)
 
+	activeID := uuid.New()
+	staleID := uuid.New()
+	now := time.Now()
 	rows := sqlmock.NewRows([]string{"id", "hostname", "os", "mac", "online", "last_seen"}).
-		AddRow(uuid.New(), "host1", "windows", "00:11:22:33:44:55", true, time.Now())
-	mock.ExpectQuery(`SELECT .+ FROM clients`).WillReturnRows(rows)
+		AddRow(activeID, "host-active", "windows", "00:11:22:33:44:55", false, now).
+		AddRow(staleID, "host-stale", "linux", "00:11:22:33:44:66", true, now)
+	mock.ExpectQuery(`(?s)SELECT.+FROM clients`).WillReturnRows(rows)
+	srv.clients[activeID] = &AgentConnection{}
 
 	req := httptest.NewRequest("GET", "/api/v1/clients", nil)
 	w := httptest.NewRecorder()
@@ -38,12 +43,53 @@ func TestHandleClients(t *testing.T) {
 
 	resp := w.Result()
 	if resp.StatusCode != http.StatusOK {
-		t.Errorf("expected 200, got %d", resp.StatusCode)
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 	var clients []common.Client
-	json.NewDecoder(resp.Body).Decode(&clients)
-	if len(clients) != 1 {
-		t.Errorf("expected 1 client, got %d", len(clients))
+	if err := json.NewDecoder(resp.Body).Decode(&clients); err != nil {
+		t.Fatal(err)
+	}
+	if len(clients) != 2 {
+		t.Fatalf("expected 2 clients, got %d", len(clients))
+	}
+	if !clients[0].Online || clients[0].ID != activeID {
+		t.Errorf("active WebSocket should be reported online: %#v", clients[0])
+	}
+	if clients[1].Online || clients[1].ID != staleID {
+		t.Errorf("stale database online flag should be overridden: %#v", clients[1])
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestHandleClientsOnlineFilterUsesActiveConnections(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store := storage.NewPostgresStorageWithDB(sqlx.NewDb(db, "postgres"))
+	srv := NewServer(&common.MasterConfig{}, common.InitLogger(slog.LevelInfo), store)
+	activeID := uuid.New()
+	now := time.Now()
+	rows := sqlmock.NewRows([]string{"id", "hostname", "os", "mac", "online", "last_seen"}).
+		AddRow(activeID, "host-active", "linux", "", false, now)
+	mock.ExpectQuery(`(?s)SELECT.+FROM clients`).WillReturnRows(rows)
+	srv.clients[activeID] = &AgentConnection{}
+
+	req := httptest.NewRequest("GET", "/api/v1/clients?online=true", nil)
+	w := httptest.NewRecorder()
+	srv.handleClients(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	var clients []common.Client
+	if err := json.NewDecoder(w.Body).Decode(&clients); err != nil {
+		t.Fatal(err)
+	}
+	if len(clients) != 1 || !clients[0].Online || clients[0].ID != activeID {
+		t.Fatalf("online filter should use live connections, got %#v", clients)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Error(err)

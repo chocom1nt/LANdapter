@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -24,15 +26,17 @@ type Server struct {
 	wsServer   *http.Server
 	upgrader   websocket.Upgrader
 
-	clientsMu sync.RWMutex
-	clients   map[uuid.UUID]*AgentConnection
+	clientsMu         sync.RWMutex
+	clients           map[uuid.UUID]*AgentConnection
+	schedulerStop     chan struct{}
+	schedulerStopOnce sync.Once
 }
 
 // CORS middleware
 func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Agent-ID")
 		w.Header().Set("Access-Control-Max-Age", "600")
 		w.Header().Set("Vary", "Origin")
@@ -51,8 +55,9 @@ func NewServer(cfg *common.MasterConfig, logger *slog.Logger, store storage.Stor
 		storage: store,
 		// Agents are native clients and should not send a browser Origin header.
 		// Reject browser-originated websocket requests to mitigate drive-by access.
-		upgrader: websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return r.Header.Get("Origin") == "" }},
-		clients:  make(map[uuid.UUID]*AgentConnection),
+		upgrader:      websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return r.Header.Get("Origin") == "" }},
+		clients:       make(map[uuid.UUID]*AgentConnection),
+		schedulerStop: make(chan struct{}),
 	}
 }
 
@@ -74,9 +79,13 @@ func (s *Server) Start() error {
 	muxHTTP.HandleFunc("/api/v1/files/", corsMiddleware(s.requireAdmin(s.handleFileOperations)))
 	muxHTTP.HandleFunc("/api/v1/agent/files/", corsMiddleware(s.requireAgent(s.handleAgentFileDownload)))
 	muxHTTP.HandleFunc("/api/v1/agents/enroll", corsMiddleware(s.requireAdmin(s.handleAgentEnroll)))
+	muxHTTP.HandleFunc("/api/v1/policies", corsMiddleware(s.requireAdmin(s.handlePolicies)))
+	muxHTTP.HandleFunc("/api/v1/policies/", corsMiddleware(s.requireAdmin(s.handlePolicyOperations)))
+	muxHTTP.HandleFunc("/api/v1/schedules", corsMiddleware(s.requireAdmin(s.handleSchedules)))
+	muxHTTP.HandleFunc("/api/v1/schedules/", corsMiddleware(s.requireAdmin(s.handleScheduleOperations)))
 
 	s.httpServer = &http.Server{
-		Addr:              fmt.Sprintf("%s:%d", s.config.Host, s.config.HTTPPort),
+		Addr:              net.JoinHostPort(strings.Trim(s.config.Host, "[]"), strconv.Itoa(s.config.HTTPPort)),
 		Handler:           muxHTTP,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       2 * time.Minute,
@@ -89,30 +98,44 @@ func (s *Server) Start() error {
 	muxWS := http.NewServeMux()
 	muxWS.HandleFunc("/ws", s.handleWebSocket) // для WebSocket CORS не нужен (upgrader уже разрешает)
 	s.wsServer = &http.Server{
-		Addr:              fmt.Sprintf("%s:%d", s.config.Host, s.config.WSPort),
+		Addr:              net.JoinHostPort(strings.Trim(s.config.Host, "[]"), strconv.Itoa(s.config.WSPort)),
 		Handler:           muxWS,
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    1 << 20,
 	}
 
+	// Bind both sockets before reporting success. Otherwise a busy port can
+	// make one listener fail in a goroutine while Start incorrectly returns nil.
+	httpListener, err := net.Listen("tcp", s.httpServer.Addr)
+	if err != nil {
+		return fmt.Errorf("listen for HTTP API on %s: %w", s.httpServer.Addr, err)
+	}
+	wsListener, err := net.Listen("tcp", s.wsServer.Addr)
+	if err != nil {
+		_ = httpListener.Close()
+		return fmt.Errorf("listen for WebSocket on %s: %w", s.wsServer.Addr, err)
+	}
+
 	go func() {
 		s.logger.Info("Starting HTTP server", "addr", s.httpServer.Addr)
-		if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := s.httpServer.Serve(httpListener); err != nil && err != http.ErrServerClosed {
 			s.logger.Error("HTTP server failed", "error", err)
 		}
 	}()
 	go func() {
 		s.logger.Info("Starting WebSocket server", "addr", s.wsServer.Addr)
-		if err := s.wsServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := s.wsServer.Serve(wsListener); err != nil && err != http.ErrServerClosed {
 			s.logger.Error("WebSocket server failed", "error", err)
 		}
 	}()
+	go s.schedulerLoop()
 	return nil
 }
 
 func (s *Server) Stop(ctx context.Context) error {
 	s.logger.Info("Stopping servers...")
+	s.schedulerStopOnce.Do(func() { close(s.schedulerStop) })
 	if err := s.httpServer.Shutdown(ctx); err != nil {
 		s.logger.Error("HTTP shutdown error", "error", err)
 	}
