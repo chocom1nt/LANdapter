@@ -14,6 +14,11 @@ import (
 )
 
 func main() {
+	if err := common.LoadProjectDotEnv(); err != nil {
+		slog.Error("Failed to load environment file", "error", err)
+		os.Exit(1)
+	}
+
 	ctx, stop := signal.NotifyContext(
 		context.Background(),
 		os.Interrupt,

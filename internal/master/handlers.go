@@ -21,7 +21,7 @@ const uploadDir = "uploads"
 
 var pendingRequests sync.Map
 
-func (s *Server) sendCommandAndWait(clientID uuid.UUID, cmdType string, w http.ResponseWriter) {
+func (s *Server) sendCommandAndWait(w http.ResponseWriter, r *http.Request, clientID uuid.UUID, cmdType string) {
 	requestID := uuid.New().String()
 	ch := make(chan interface{}, 1)
 	key := clientID.String() + ":" + requestID
@@ -30,11 +30,11 @@ func (s *Server) sendCommandAndWait(clientID uuid.UUID, cmdType string, w http.R
 
 	cmd := &commandMsg{Type: cmdType, JobID: requestID}
 	if err := s.sendCommand(clientID, cmd); err != nil {
-		http.Error(w, "Client is not online", http.StatusConflict)
+		http.Error(w, "No active WebSocket connection for this client. Check that the agent is running and reconnect it.", http.StatusConflict)
 		return
 	}
 
-	timer := time.NewTimer(5 * time.Second)
+	timer := time.NewTimer(30 * time.Second)
 	defer timer.Stop()
 	select {
 	case resp := <-ch:
@@ -43,7 +43,11 @@ func (s *Server) sendCommandAndWait(clientID uuid.UUID, cmdType string, w http.R
 			s.logger.Warn("Failed to encode agent response", "error", err)
 		}
 	case <-timer.C:
-		http.Error(w, "Timeout waiting for agent response", http.StatusRequestTimeout)
+		http.Error(w, "Agent did not respond within 30 seconds. Check that the agent is running and up to date, then retry.", http.StatusRequestTimeout)
+	case <-r.Context().Done():
+		// The client disconnected or cancelled its fetch; the deferred cleanup
+		// removes the pending request so the eventual agent response is discarded.
+		return
 	}
 }
 
@@ -202,15 +206,35 @@ func (s *Server) handleClients(w http.ResponseWriter, r *http.Request) {
 		online = &b
 	}
 
-	clients, err := s.storage.ListClients(r.Context(), online)
+	// The database flag can remain TRUE after a hard Master restart or for
+	// development fixtures. The in-memory WebSocket registry is the source of
+	// truth for whether this process can actually send a command right now.
+	clients, err := s.storage.ListClients(r.Context(), nil)
 	if err != nil {
 		s.logger.Error("List clients failed", "error", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
+	s.clientsMu.RLock()
+	active := make(map[uuid.UUID]struct{}, len(s.clients))
+	for id := range s.clients {
+		active[id] = struct{}{}
+	}
+	s.clientsMu.RUnlock()
+
+	filtered := make([]common.Client, 0, len(clients))
+	for i := range clients {
+		_, clients[i].Online = active[clients[i].ID]
+		if online == nil || clients[i].Online == *online {
+			filtered = append(filtered, clients[i])
+		}
+	}
+	clients = filtered
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(clients)
+	if err := json.NewEncoder(w).Encode(clients); err != nil {
+		s.logger.Warn("Failed to encode clients response", "error", err)
+	}
 }
 
 // handleWOL – отправляет Wake-on-LAN пакеты выбранным клиентам
@@ -219,11 +243,17 @@ func (s *Server) handleWOL(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	defer r.Body.Close()
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var req struct {
 		ClientIDs []string `json:"client_ids"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if len(req.ClientIDs) == 0 || len(req.ClientIDs) > 500 {
+		http.Error(w, "client_ids must contain between 1 and 500 IDs", http.StatusBadRequest)
 		return
 	}
 	var macs []string
@@ -425,7 +455,7 @@ func (s *Server) handleClientDevices(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid client ID", http.StatusBadRequest)
 		return
 	}
-	s.sendCommandAndWait(clientID, "devices", w)
+	s.sendCommandAndWait(w, r, clientID, "devices")
 }
 
 func (s *Server) handleClientStats(w http.ResponseWriter, r *http.Request) {
@@ -443,7 +473,7 @@ func (s *Server) handleClientStats(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid client ID", http.StatusBadRequest)
 		return
 	}
-	s.sendCommandAndWait(clientID, "stats", w)
+	s.sendCommandAndWait(w, r, clientID, "stats")
 }
 
 func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {

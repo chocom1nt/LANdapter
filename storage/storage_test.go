@@ -235,3 +235,53 @@ func TestJobResults(t *testing.T) {
 }
 
 func strPtr(s string) *string { return &s }
+
+func TestMarkScheduleRunClaimsOnlyDueSchedules(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store := &PostgresStorage{db: sqlx.NewDb(db, "postgres")}
+	ctx := context.Background()
+	scheduleID := uuid.New()
+	ranAt := time.Now().UTC()
+	nextRun := ranAt.Add(30 * time.Minute)
+
+	mock.ExpectExec(`UPDATE schedules SET last_run`).
+		WithArgs(ranAt, nextRun, scheduleID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	if err := store.MarkScheduleRun(ctx, scheduleID, ranAt, nextRun); err != nil {
+		t.Fatalf("MarkScheduleRun() error = %v", err)
+	}
+
+	mock.ExpectExec(`UPDATE schedules SET last_run`).
+		WithArgs(ranAt, nextRun, scheduleID).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	if err := store.MarkScheduleRun(ctx, scheduleID, ranAt, nextRun); err == nil {
+		t.Fatal("MarkScheduleRun() should reject a schedule that another scheduler claimed or disabled")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestUpdateScheduleEnabledReportsMissingSchedule(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store := &PostgresStorage{db: sqlx.NewDb(db, "postgres")}
+	scheduleID := uuid.New()
+
+	mock.ExpectExec(`UPDATE schedules SET enabled`).
+		WithArgs(false, scheduleID).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	if err := store.UpdateScheduleEnabled(context.Background(), scheduleID, false); err == nil {
+		t.Fatal("UpdateScheduleEnabled() should report a missing schedule")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}

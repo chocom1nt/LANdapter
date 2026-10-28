@@ -144,3 +144,40 @@ export function enrollAgent(agentId = "") {
     body: JSON.stringify(body),
   });
 }
+
+export const getPolicies = (signal) => request("/policies", { signal });
+
+export function createPolicy(policy) {
+  return request("/policies", {
+    method: "POST",
+    body: JSON.stringify(policy),
+  });
+}
+
+export function deletePolicy(policyId) {
+  return request(`/policies/${encodeURIComponent(policyId)}`, { method: "DELETE" });
+}
+
+export function runPolicy(policyId) {
+  return request(`/policies/${encodeURIComponent(policyId)}/run`, { method: "POST" });
+}
+
+export const getSchedules = (signal) => request("/schedules", { signal });
+
+export function createSchedule(schedule) {
+  return request("/schedules", {
+    method: "POST",
+    body: JSON.stringify(schedule),
+  });
+}
+
+export function setScheduleEnabled(scheduleId, enabled) {
+  return request(`/schedules/${encodeURIComponent(scheduleId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ enabled: Boolean(enabled) }),
+  });
+}
+
+export function deleteSchedule(scheduleId) {
+  return request(`/schedules/${encodeURIComponent(scheduleId)}`, { method: "DELETE" });
+}

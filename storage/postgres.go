@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/url"
 	"strconv"
+	"time"
 
 	"github.com/chocom1nt/LANdapter/internal/common"
 
@@ -187,4 +188,109 @@ func (s *PostgresStorage) ListJobResultsByJob(ctx context.Context, jobID uuid.UU
 	          FROM job_results WHERE job_id = $1`
 	err := s.db.SelectContext(ctx, &results, query, jobID)
 	return results, err
+}
+
+// ---- Group policies and interval schedules ----
+
+func (s *PostgresStorage) CreatePolicy(ctx context.Context, policy *common.GroupPolicy) error {
+	const query = `INSERT INTO group_policies (id, name, description, os_filter, files, mode, enabled, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`
+	_, err := s.db.ExecContext(ctx, query, policy.ID, policy.Name, policy.Description, policy.OSFilter,
+		policy.Files, policy.Mode, policy.Enabled, policy.CreatedAt, policy.UpdatedAt)
+	return err
+}
+
+func (s *PostgresStorage) ListPolicies(ctx context.Context) ([]common.GroupPolicy, error) {
+	policies := make([]common.GroupPolicy, 0)
+	const query = `SELECT id, name, description, os_filter, files, mode, enabled, created_at, updated_at
+		FROM group_policies ORDER BY created_at DESC`
+	err := s.db.SelectContext(ctx, &policies, query)
+	return policies, err
+}
+
+func (s *PostgresStorage) GetPolicy(ctx context.Context, id uuid.UUID) (*common.GroupPolicy, error) {
+	var policy common.GroupPolicy
+	const query = `SELECT id, name, description, os_filter, files, mode, enabled, created_at, updated_at
+		FROM group_policies WHERE id = $1`
+	err := s.db.GetContext(ctx, &policy, query, id)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return &policy, err
+}
+
+func (s *PostgresStorage) DeletePolicy(ctx context.Context, id uuid.UUID) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM group_policies WHERE id = $1`, id)
+	return err
+}
+
+func (s *PostgresStorage) CreateSchedule(ctx context.Context, schedule *common.Schedule) error {
+	const query = `INSERT INTO schedules (id, policy_id, name, interval_minutes, enabled, last_run, next_run, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`
+	_, err := s.db.ExecContext(ctx, query, schedule.ID, schedule.PolicyID, schedule.Name,
+		schedule.IntervalMinutes, schedule.Enabled, schedule.LastRun, schedule.NextRun,
+		schedule.CreatedAt, schedule.UpdatedAt)
+	return err
+}
+
+func (s *PostgresStorage) ListSchedules(ctx context.Context) ([]common.Schedule, error) {
+	schedules := make([]common.Schedule, 0)
+	const query = `SELECT id, policy_id, name, interval_minutes, enabled, last_run, next_run, created_at, updated_at
+		FROM schedules ORDER BY next_run ASC`
+	err := s.db.SelectContext(ctx, &schedules, query)
+	return schedules, err
+}
+
+func (s *PostgresStorage) GetSchedule(ctx context.Context, id uuid.UUID) (*common.Schedule, error) {
+	var schedule common.Schedule
+	const query = `SELECT id, policy_id, name, interval_minutes, enabled, last_run, next_run, created_at, updated_at
+		FROM schedules WHERE id = $1`
+	err := s.db.GetContext(ctx, &schedule, query, id)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return &schedule, err
+}
+
+func (s *PostgresStorage) DeleteSchedule(ctx context.Context, id uuid.UUID) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM schedules WHERE id = $1`, id)
+	return err
+}
+
+func (s *PostgresStorage) UpdateScheduleEnabled(ctx context.Context, id uuid.UUID, enabled bool) error {
+	result, err := s.db.ExecContext(ctx, `UPDATE schedules SET enabled = $1, updated_at = NOW() WHERE id = $2`, enabled, id)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return fmt.Errorf("schedule not found")
+	}
+	return nil
+}
+
+func (s *PostgresStorage) ListDueSchedules(ctx context.Context, now time.Time) ([]common.Schedule, error) {
+	schedules := make([]common.Schedule, 0)
+	const query = `SELECT id, policy_id, name, interval_minutes, enabled, last_run, next_run, created_at, updated_at
+		FROM schedules WHERE enabled = TRUE AND next_run <= $1 ORDER BY next_run ASC`
+	err := s.db.SelectContext(ctx, &schedules, query, now)
+	return schedules, err
+}
+
+func (s *PostgresStorage) MarkScheduleRun(ctx context.Context, id uuid.UUID, ranAt, nextRun time.Time) error {
+	result, err := s.db.ExecContext(ctx, `UPDATE schedules SET last_run = $1, next_run = $2, updated_at = NOW() WHERE id = $3 AND enabled = TRUE AND next_run <= $1`, ranAt, nextRun, id)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return fmt.Errorf("schedule is no longer due or has been disabled")
+	}
+	return nil
 }

@@ -31,10 +31,13 @@ go.work.sum
 /uploads/
 /*.log
 /logs/
+/configs/master.yaml
+/configs/agent.yaml
 /configs/*.local.yaml
 /configs/*.secret.yaml
 .env
-.env.local
+.env.*
+!.env.example
 
 # --- Node / Frontend ---
 # Logs
@@ -49,7 +52,6 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
-*.local
 
 # Editor directories and files
 .vscode/*
@@ -68,7 +70,6 @@ dist-ssr
 /web/dist
 /web/.vite
 /web/node_modules
-/web/package-lock.json  # раскомментируйте, если не хотите коммитить lock-файл (обычно коммитят)
 
 # --- OS / Environment ---
 Thumbs.db
@@ -79,7 +80,6 @@ Thumbs.db
 
 # --- Docker ---
 docker-compose.override.yml
-*.dockerignore
 .Dockerfile.*.tmp
 
 # --- PostgreSQL (local volumes) ---

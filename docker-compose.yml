@@ -10,6 +10,14 @@ services:
       - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      # The official Postgres image runs these on first initialization only.
+      - ./migrations/001_init.up.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
+      - ./migrations/002_add_mac.up.sql:/docker-entrypoint-initdb.d/002_add_mac.sql:ro
+      - ./migrations/003_add_devices.up.sql:/docker-entrypoint-initdb.d/003_add_devices.sql:ro
+      - ./migrations/004_add_snapshots.up.sql:/docker-entrypoint-initdb.d/004_add_snapshots.sql:ro
+      - ./migrations/005_agent_credentials.up.sql:/docker-entrypoint-initdb.d/005_agent_credentials.sql:ro
+      - ./migrations/006_fix_clients_schema.up.sql:/docker-entrypoint-initdb.d/006_fix_clients_schema.sql:ro
+      - ./migrations/007_policies_schedules.up.sql:/docker-entrypoint-initdb.d/007_policies_schedules.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
@@ -19,7 +27,7 @@ services:
   master:
     build:
       context: .
-      dockerfile: dockerfile
+      dockerfile: Dockerfile
     command: ./bin/master
     ports:
       - "127.0.0.1:8080:8080"

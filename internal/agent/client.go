@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"log/slog"
 	"mime"
@@ -34,6 +35,11 @@ type Agent struct {
 	mac       string
 	conn      *websocket.Conn
 	installer *Installer
+
+	deviceInventoryMu       sync.Mutex
+	deviceInventoryCache    interface{}
+	deviceInventoryCachedAt time.Time
+	deviceInventoryPartial  bool
 }
 
 type handshakeMsg struct {
@@ -398,30 +404,6 @@ func (a *Agent) downloadFile(targetURL, destDir string) (string, error) {
 	return fullPath, nil
 }
 
-// collectDevices – сбор информации об устройствах
-func (a *Agent) collectDevices() interface{} {
-	if runtime.GOOS == "windows" {
-		cmd := exec.Command("powershell", "-NoProfile", "-Command",
-			`[Console]::OutputEncoding = [System.Text.Encoding]::UTF8;
-			 Get-PnpDevice | Select-Object FriendlyName, Class, Status | ConvertTo-Json -Compress`)
-		out, err := cmd.Output()
-		if err != nil {
-			a.logger.Error("Devices command failed", "error", err)
-			return map[string]string{"error": err.Error()}
-		}
-		return string(out)
-	} else {
-		cmd := exec.Command("bash", "-c",
-			`echo "=== USB ==="; lsusb; echo "=== PCI ==="; lspci; echo "=== CPU ==="; lscpu`)
-		out, err := cmd.Output()
-		if err != nil {
-			a.logger.Error("Devices command failed", "error", err)
-			return map[string]string{"error": err.Error()}
-		}
-		return string(out)
-	}
-}
-
 // collectStats – сбор системной статистики
 func (a *Agent) collectStats() interface{} {
 	if runtime.GOOS == "windows" {
@@ -443,7 +425,7 @@ func (a *Agent) collectStats() interface{} {
 			a.logger.Error("Stats command failed", "error", err)
 			return map[string]string{"error": err.Error()}
 		}
-		return string(out)
+		return decodeStatsOutput(out)
 	} else {
 		cmd := exec.Command("bash", "-c",
 			`cpu=$(top -bn1 | grep "Cpu(s)" | awk '{print $2}' | cut -d'%' -f1);
@@ -455,6 +437,14 @@ func (a *Agent) collectStats() interface{} {
 			a.logger.Error("Stats command failed", "error", err)
 			return map[string]string{"error": err.Error()}
 		}
-		return string(out)
+		return decodeStatsOutput(out)
 	}
+}
+
+func decodeStatsOutput(out []byte) interface{} {
+	var stats map[string]interface{}
+	if err := json.Unmarshal(out, &stats); err != nil {
+		return map[string]string{"error": "could not parse statistics output"}
+	}
+	return stats
 }
